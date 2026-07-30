@@ -1,14 +1,25 @@
-﻿# 个人工作台
+# Personal Workspace
 
-局域网双端个人工作台：Windows FastAPI 服务端 + Kotlin/Compose Android 客户端。
+Personal Workspace 是一个面向个人开发者的局域网工作台：电脑端运行本地服务和 Windows 桌面应用，手机端通过同一 Wi-Fi 访问任务、笔记和 GitHub 信息。
 
-## 当前状态
+## 功能
 
-第一版 MVP 工程已建立：
+- 任务看板：按列管理任务，支持左右移动和撤销操作。
+- 笔记：创建、编辑、搜索和标签筛选。
+- GitHub：读取个人资料、头像、仓库、提交和活动，并支持打开仓库链接。
+- 双端同步：REST API + WebSocket，电脑端和 Android 端共享同一份本地数据。
+- 桌面服务：打开 Windows 软件时启动内置服务，关闭软件后服务随之停止。
+- 本地配置：GitHub 用户名、Token、服务 IP 和端口保存在本机，不提交到仓库。
 
-- `server/`：可运行的 REST + WebSocket 服务端，SQLite 自动初始化
-- `android/`：可导入 Android Studio 的 Compose 客户端骨架
-- `.claude/plans/ui-prototypes/`：原有 UI 视觉原型
+## 项目结构
+
+```text
+server/    FastAPI 服务端、SQLite 数据库和 WebSocket
+web/       浏览器/桌面端工作台页面
+android/   Kotlin + Jetpack Compose Android 客户端
+desktop/   Electron Windows 桌面端
+.claude/   UI 原型和项目协作资料
+```
 
 ## 快速启动服务端
 
@@ -18,29 +29,39 @@ python -m pip install -r requirements.txt
 python run_server.py
 ```
 
-Windows 用户也可以双击 `server/start_server.bat` 启动；如果 `8080` 已被占用，窗口会显示具体错误。
-
-启动后访问 `http://127.0.0.1:8080/docs` 查看接口文档。
-
-直接打开 `http://127.0.0.1:8080/` 会显示服务状态；业务接口统一位于 `/api/` 下。
-
-电脑端工作台界面位于 `http://127.0.0.1:8080/app/`。
-
-Android 真机测试时，手机和电脑需在同一 Wi-Fi，并在客户端设置页填写服务端启动时打印的局域网 IP（例如 `192.168.1.34`）和端口 `8080`。
+浏览器访问 `http://127.0.0.1:8080/`，工作台地址为 `http://127.0.0.1:8080/app/`。手机和电脑连接同一 Wi-Fi 后，在 Android 设置中填写电脑的局域网 IP 和端口 `8080`。
 
 ## GitHub 配置
 
+在桌面端或 Android 端的连接设置中填写 GitHub 用户名和 Token。配置写入本地 `server/data/`，该目录已被 Git 忽略。Token 建议只授予读取仓库和用户信息所需的权限。
+
+## 构建
+
+### Android APK
+
 ```powershell
-$env:GITHUB_USERNAME = "your-github-name"
-$env:GITHUB_TOKEN = "ghp_xxx" # 可选，建议配置以提高 API 限额
+cd android
+.\gradlew.bat assembleDebug
 ```
 
-然后调用 `POST /api/github/refresh` 刷新缓存。
+APK 输出在 `android/app/build/outputs/apk/debug/app-debug.apk`。
 
-## Windows 桌面版
+### Windows 桌面安装包
 
-桌面软件由 Electron 工作台和内置 FastAPI 服务组成，双击安装包后会自动启动本地服务并打开工作台：
+```powershell
+# 在项目根目录执行
+pyinstaller personal-workstation-server.spec --noconfirm --clean
+cd desktop
+npm install
+npm run dist
+```
 
-`desktop/dist/个人工作台 Setup 0.1.0.exe`
+安装包输出在 `desktop/dist/`。
 
-安装后的任务、笔记、GitHub 配置保存在 Windows 用户数据目录，不依赖 Python 环境。软件默认使用 `127.0.0.1:8080`；如果端口被占用，请先关闭占用端口的服务。
+## 数据和安全
+
+运行数据位于 `server/data/`，包含本地 SQLite 数据库和设置文件，不会被 Git 跟踪。不要把 GitHub Token 写入源代码、README 或提交记录。
+
+## License
+
+本项目使用仓库中的 [MIT License](LICENSE)。

@@ -26,3 +26,4 @@ desktop/test-data/*.db
 .idea/
 **/.kotlin/
 **/.gradle-user-home/
+!personal-workstation-server.spec
