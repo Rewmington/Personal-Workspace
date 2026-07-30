@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>任务看板</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased}
+body{background:#0a0e14;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.stage{transform-origin:top center;transform:scale(.6)}
+.browser{width:1280px;height:720px;background:#181818;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,.55)}
+.brow-bar{height:38px;background:#0a0a0a;display:flex;align-items:center;padding:0 14px;gap:12px;flex-shrink:0}
+.dots{display:flex;gap:7px}
+.dot{width:11px;height:11px;border-radius:50%}
+.dot-r{background:#ff5f57}.dot-y{background:#febc2e}.dot-g{background:#28c840}
+.url-bar{flex:1;background:#181818;border:1px solid #222222;border-radius:7px;height:24px;display:flex;align-items:center;padding:0 14px;gap:6px}
+.url-bar svg{flex-shrink:0}
+.url-text{font-size:12px;color:#8b949e;letter-spacing:0.02em}
+
+.main{display:flex;flex:1;overflow:hidden}
+
+.sidebar{width:240px;background:#141414;border-right:1px solid #1e1e1e;padding:20px 0;display:flex;flex-direction:column;flex-shrink:0}
+.brand{padding:4px 20px 20px;display:flex;align-items:center;gap:10px}
+.brand-icon{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#7c3aed,#a78bfa);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;flex-shrink:0}
+.brand-name{font-size:14px;color:#fff;font-weight:600;line-height:1.2}
+.brand-sub{font-size:10.5px;color:#666666;margin-top:2px}
+.nav-label{padding:14px 20px 6px;font-size:10px;color:#666666;letter-spacing:0.12em;text-transform:uppercase;font-weight:600}
+.nav-item{display:flex;align-items:center;gap:11px;padding:9px 14px;margin:1px 12px;cursor:pointer;border-radius:10px;font-size:13.5px;color:#888888;height:38px;font-weight:500;transition:background .15s,color .15s}
+.nav-item:hover{background:#252525;color:#ffffff}
+.nav-item.active{background:linear-gradient(135deg,#7c3aed,#7c3aed);color:#ffffff;box-shadow:0 4px 12px rgba(34,197,94,.3)}
+.nav-item svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.nav-badge{margin-left:auto;background:rgba(255,255,255,.18);color:#fff;font-size:10.5px;padding:2px 8px;border-radius:10px;font-weight:600}
+.sidebar-foot{margin-top:auto;padding:16px 20px;border-top:1px solid #1e1e1e;display:flex;align-items:center;gap:10px}
+.avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#a78bfa);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600;flex-shrink:0}
+.user-name{font-size:13px;color:#fff;font-weight:600;line-height:1.2}
+.user-role{font-size:10.5px;color:#666666;margin-top:2px}
+
+.kboard{flex:1;padding:22px 28px;display:flex;flex-direction:column;overflow:hidden}
+.kheader{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-shrink:0}
+.ktitle{font-size:21px;color:#fff;font-weight:700;letter-spacing:-0.3px}
+.search{display:flex;align-items:center;gap:8px;background:#252525;border-radius:10px;padding:0 14px;height:38px;width:260px}
+.search svg{width:14px;height:14px;stroke:#666666;fill:none;stroke-width:1.8;flex-shrink:0}
+.search input{border:none;background:transparent;color:#fff;font-size:13px;outline:none;width:100%;font-family:'Inter',sans-serif}
+.search input::placeholder{color:#666666}
+.filter-btn{display:flex;align-items:center;gap:6px;padding:0 14px;background:#252525;border-radius:10px;border:none;color:#888888;font-size:12.5px;cursor:pointer;font-family:'Inter',sans-serif;font-weight:500;height:38px}
+.filter-btn svg{width:14px;height:14px;stroke:#a78bfa;fill:none;stroke-width:1.8}
+.new-btn{margin-left:auto;padding:0 18px;background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;display:flex;align-items:center;gap:6px;height:38px;box-shadow:0 4px 12px rgba(34,197,94,.3)}
+.new-btn svg{width:14px;height:14px;stroke:#fff;fill:none;stroke-width:2.5}
+
+.columns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;flex:1;min-height:0}
+.col{background:#252525;border-radius:16px;padding:14px 14px 14px;display:flex;flex-direction:column;min-height:0;box-shadow:0 4px 20px rgba(0,0,0,.25);border:2px solid transparent;transition:border-color .15s,box-shadow .15s}
+.col.target{border-color:#7c3aed;box-shadow:0 4px 20px rgba(34,197,94,.25),0 0 0 2px rgba(34,197,94,.4) inset}
+.col-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-shrink:0}
+.col-pill{display:inline-flex;align-items:center;gap:8px;padding:5px 14px;border-radius:20px;font-size:12px;color:#888888;font-weight:600;background:#2a2a2a;letter-spacing:0.02em}
+.col.active .col-pill{background:#7c3aed;color:#fff}
+.col-count{font-size:11px;color:#666666;font-weight:500}
+.col-head-right{display:flex;align-items:center;gap:4px}
+.col-add{width:24px;height:24px;border-radius:7px;background:#2a2a2a;border:none;color:#666666;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:'Inter',sans-serif}
+
+.col-cards{display:flex;flex-direction:column;gap:10px;flex:1;overflow-y:auto;padding-right:4px}
+.col-cards::-webkit-scrollbar{width:4px}
+.col-cards::-webkit-scrollbar-thumb{background:#252525;border-radius:2px}
+
+.card{background:#2a2a2a;border-radius:12px;padding:13px 14px 12px 18px;box-shadow:0 4px 20px rgba(0,0,0,.25);position:relative;display:flex;flex-direction:column;gap:8px;cursor:grab;transition:transform .15s,box-shadow .15s,opacity .15s;overflow:hidden}
+.card:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,0,0,.4)}
+.card::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:4px;border-radius:4px;background:linear-gradient(180deg,#a78bfa,#7c3aed)}
+.card.priority-orange::before{background:linear-gradient(180deg,#f0a93b,#e8941a)}
+.card.priority-green::before{background:linear-gradient(180deg,#a78bfa,#6d28d9)}
+.card.dragging{opacity:.55;transform:rotate(3deg) translateY(-10px);box-shadow:0 20px 40px rgba(0,0,0,.5)}
+
+.card-title{font-size:14px;color:#fff;font-weight:600;line-height:1.4}
+.card-desc{font-size:12px;color:#888888;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card-tags{display:flex;flex-wrap:wrap;gap:5px}
+.tag{display:inline-block;padding:3px 9px;background:rgba(34,197,94,.15);color:#a78bfa;font-size:10px;border-radius:6px;font-weight:600;letter-spacing:0.02em;border:1px solid rgba(34,197,94,.3)}
+.tag.orange{background:rgba(240,169,59,.12);color:#f0a93b;border-color:rgba(240,169,59,.25)}
+.tag.green{background:rgba(74,222,128,.1);color:#a78bfa;border-color:rgba(74,222,128,.22)}
+.tag.gray{background:rgba(138,149,168,.12);color:#cccccc;border-color:rgba(138,149,168,.2)}
+
+.card-foot{display:flex;align-items:center;justify-content:space-between;padding-top:4px;margin-top:2px;border-top:1px solid #2a2a2a}
+.card-avatar{display:flex;align-items:center;gap:6px}
+.mini-av{width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#a78bfa);display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:600}
+.mini-av.av2{background:linear-gradient(135deg,#8b5cf6,#a78bfa)}
+.mini-av.av3{background:linear-gradient(135deg,#e8a33d,#f5c06a)}
+.mini-av.av4{background:linear-gradient(135deg,#d95545,#ee7d6e)}
+.mini-av.av5{background:linear-gradient(135deg,#6d28d9,#86efac)}
+.mini-av{margin-left:-6px;border:2px solid #2a2a2a}
+.mini-av:first-child{margin-left:0}
+.card-assign{font-size:10.5px;color:#888888;margin-left:4px}
+.card-due{font-size:10.5px;color:#666666;display:flex;align-items:center;gap:4px;font-weight:500}
+.card-due svg{width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:1.8}
+.card-due.urgent{color:#d95545}
+.card-due.done{color:#a78bfa}
+</style>
+</head>
+<body>
+<div class="stage">
+<div class="browser">
+<div class="brow-bar">
+<div class="dots"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+<div class="url-bar">
+<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#666666" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 12l2 2 4-4"/></svg>
+<span class="url-text">localhost:8080/kanban</span>
+</div>
+</div>
+<div class="main">
+
+<aside class="sidebar">
+<div class="brand">
+<div class="brand-icon">K</div>
+<div><div class="brand-name">看板助手</div><div class="brand-sub">Workstation</div></div>
+</div>
+<div class="nav-label">主菜单</div>
+<div class="nav-item">
+<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+<span>仪表盘</span>
+</div>
+<div class="nav-item active">
+<svg viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="16" rx="1.5"/><rect x="10" y="8" width="6" height="12" rx="1.5"/><rect x="17" y="2" width="4" height="18" rx="1.5"/></svg>
+<span>看板</span>
+<span class="nav-badge">12</span>
+</div>
+<div class="nav-item">
+<svg viewBox="0 0 24 24"><path d="M4 5h12l4 4v10H4z"/><path d="M16 5v4h4"/><path d="M8 13h8M8 16.5h6"/></svg>
+<span>笔记</span>
+</div>
+<div class="nav-item">
+<svg viewBox="0 0 24 24"><path d="M9 19c-5 1.4-7-1.4-7-1.4s-2.5-2.1-2.5-5.2c0-3 2-5 2-5s1.9-1.6 4.1-1.1c1.2.3 2 1.1 2.4 1.1.4 0 1.2-.8 2.4-1.1 2.2-.5 4.1 1.1 4.1 1.1s2 2 2 5c0 3.1-2.5 5.2-2.5 5.2S14 20.4 9 19z"/></svg>
+<span>GitHub</span>
+</div>
+<div class="nav-label">其他</div>
+<div class="nav-item">
+<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l-.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+<span>工具</span>
+</div>
+<div class="nav-item">
+<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l-.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+<span>设置</span>
+</div>
+<div class="sidebar-foot">
+<div class="avatar">张</div>
+<div><div class="user-name">张明</div><div class="user-role">高级开发</div></div>
+</div>
+</aside>
+
+<div class="kboard">
+<div class="kheader">
+<h1 class="ktitle">任务看板</h1>
+<div class="search">
+<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+<input type="text" placeholder="搜索任务...">
+</div>
+<button class="filter-btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M7 12h10M10 18h4"/></svg>筛选</button>
+<button class="new-btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>新建任务</button>
+</div>
+
+<div class="columns">
+
+<div class="col active">
+<div class="col-head">
+<div><span class="col-pill">待办</span><span class="col-count" style="margin-left:10px">5</span></div>
+<div class="col-head-right"><button class="col-add">+</button></div>
+</div>
+<div class="col-cards">
+
+<div class="card priority-orange">
+<div class="card-title">重构 API 路由层</div>
+<div class="card-desc">将现有 REST 路由重构为模块化架构，统一中间件处理</div>
+<div class="card-tags"><span class="tag">后端</span><span class="tag orange">高优先级</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av">李</div><span class="card-assign">李伟</span></div>
+<div class="card-due"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>7月31日</div>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title">实现笔记搜索</div>
+<div class="card-desc">全文检索功能，支持标签和关键词组合筛选</div>
+<div class="card-tags"><span class="tag green">全栈</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av av3">王</div><span class="card-assign">王芳</span></div>
+<div class="card-due"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>8月2日</div>
+</div>
+</div>
+
+<div class="card priority-orange">
+<div class="card-title">编写测试</div>
+<div class="card-desc">补充单元测试和集成测试，覆盖核心模块</div>
+<div class="card-tags"><span class="tag gray">测试</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av">张</div><span class="card-assign">张明</span></div>
+<div class="card-due urgent"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>已过期 · 7月28日</div>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title">更新文档</div>
+<div class="card-desc">同步 API 变更到开发者文档和接口说明</div>
+<div class="card-tags"><span class="tag green">文档</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av av2">陈</div><span class="card-assign">陈雪</span></div>
+<div class="card-due"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>8月5日</div>
+</div>
+</div>
+
+<div class="card priority-orange">
+<div class="card-title">性能优化</div>
+<div class="card-desc">数据库查询优化，减少 N+1 问题，引入缓存层</div>
+<div class="card-tags"><span class="tag">后端</span><span class="tag orange">高优先级</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av">李</div><span class="card-assign">李伟</span></div>
+<div class="card-due"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>8月3日</div>
+</div>
+</div>
+
+</div>
+</div>
+
+<div class="col target">
+<div class="col-head">
+<div><span class="col-pill">进行中</span><span class="col-count" style="margin-left:10px">4</span></div>
+<div class="col-head-right"><button class="col-add">+</button></div>
+</div>
+<div class="col-cards">
+
+<div class="card">
+<div class="card-title">用户认证</div>
+<div class="card-desc">实现 JWT 认证体系，支持多因子登录</div>
+<div class="card-tags"><span class="tag">安全</span><span class="tag">后端</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av">张</div><div class="mini-av av3">王</div><span class="card-assign">2人</span></div>
+<div class="card-due"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>7月30日</div>
+</div>
+</div>
+
+<div class="card priority-orange">
+<div class="card-title">数据库优化</div>
+<div class="card-desc">索引调优，慢查询分析，分区表设计</div>
+<div class="card-tags"><span class="tag">后端</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av">李</div><span class="card-assign">李伟</span></div>
+<div class="card-due"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>8月1日</div>
+</div>
+</div>
+
+<div class="card dragging">
+<div class="card-title">部署 pipeline</div>
+<div class="card-desc">CI/CD 流水线搭建，自动化部署至生产环境</div>
+<div class="card-tags"><span class="tag">DevOps</span><span class="tag orange">中优先级</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av av2">陈</div><span class="card-assign">陈雪</span></div>
+<div class="card-due"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>8月4日</div>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title">API 限流</div>
+<div class="card-desc">令牌桶算法实现，按用户分层配置限流策略</div>
+<div class="card-tags"><span class="tag">后端</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av av4">赵</div><span class="card-assign">赵磊</span></div>
+<div class="card-due"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>8月6日</div>
+</div>
+</div>
+
+</div>
+</div>
+
+<div class="col">
+<div class="col-head">
+<div><span class="col-pill">已完成</span><span class="col-count" style="margin-left:10px">3</span></div>
+<div class="col-head-right"><button class="col-add">+</button></div>
+</div>
+<div class="col-cards">
+
+<div class="card" style="opacity:.85">
+<div class="card-title" style="text-decoration:line-through;color:#888888">前端适配</div>
+<div class="card-desc">响应式布局适配，移动端触摸交互优化</div>
+<div class="card-tags"><span class="tag gray">前端</span><span class="tag green">已完成</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av av3">王</div><span class="card-assign">王芳</span></div>
+<div class="card-due done"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>7月26日</div>
+</div>
+</div>
+
+<div class="card" style="opacity:.85">
+<div class="card-title" style="text-decoration:line-through;color:#888888">移动端联调</div>
+<div class="card-desc">iOS 和 Android 客户端接口联调完成</div>
+<div class="card-tags"><span class="tag gray">全栈</span><span class="tag green">已完成</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av">张</div><div class="mini-av av3">王</div><div class="mini-av av4">赵</div><span class="card-assign">3人</span></div>
+<div class="card-due done"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>7月25日</div>
+</div>
+</div>
+
+<div class="card" style="opacity:.85">
+<div class="card-title" style="text-decoration:line-through;color:#888888">日志监控</div>
+<div class="card-desc">ELK 日志收集上线，实时告警规则配置</div>
+<div class="card-tags"><span class="tag gray">DevOps</span><span class="tag green">已完成</span></div>
+<div class="card-foot">
+<div class="card-avatar"><div class="mini-av av2">陈</div><span class="card-assign">陈雪</span></div>
+<div class="card-due done"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>7月24日</div>
+</div>
+</div>
+
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>

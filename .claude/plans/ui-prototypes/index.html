@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>个人工作台 — UI 原型一览</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#e6edf3;font-family:Inter,system-ui,-apple-system,sans-serif}
+.header{padding:20px 28px;border-bottom:1px solid #30363d;background:#161b22;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.header h1{font-size:18px;font-weight:600}
+.header .sub{font-size:12px;color:#8b949e;margin-top:2px;font-family:'JetBrains Mono',monospace}
+.header .badge{font-size:11px;color:#3fb950;background:rgba(63,185,80,.12);padding:4px 12px;border-radius:12px;font-family:'JetBrains Mono',monospace}
+.section-label{padding:14px 28px 8px;font-size:13px;font-weight:600;color:#8b949e;letter-spacing:.06em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;border-top:1px solid #21262d;margin-top:16px}
+.section-label:first-of-type{margin-top:0;border-top:none}
+.row{display:grid;gap:16px;padding:8px 28px}
+.row-2{grid-template-columns:1fr 1fr}
+.row-3{grid-template-columns:1fr 1fr 1fr}
+.frame-wrap{background:#161b22;border:1px solid #30363d;border-radius:10px;overflow:hidden}
+.frame-head{padding:10px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #21262d}
+.frame-name{font-size:12px;font-weight:600;color:#e6edf3;display:flex;align-items:center;gap:8px}
+.frame-name .tag{font-size:10px;color:#58a6ff;background:rgba(88,166,255,.12);padding:2px 8px;border-radius:8px;font-family:'JetBrains Mono',monospace}
+.frame-size{font-size:10px;color:#484f58;font-family:'JetBrains Mono',monospace}
+.frame-body{display:flex;justify-content:center;background:#0d1117;padding:10px}
+iframe{display:block;border:none;border-radius:4px}
+.footnote{padding:20px 28px;text-align:center;font-size:11px;color:#484f58;font-family:'JetBrains Mono',monospace}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>🖥️ 个人工作台 · UI 原型一览</h1>
+    <div class="sub">// 极客深色风 · 双端 · 共 7 个页面</div>
+  </div>
+  <div class="badge">v1.0 · 预览中</div>
+</div>
+
+<div class="section-label">// 手机端 · Android App（393 × 852）</div>
+
+<div class="row row-2">
+  <div class="frame-wrap">
+    <div class="frame-head">
+      <div class="frame-name">📊 仪表盘 <span class="tag">首页</span></div>
+      <div class="frame-size">393 × 852</div>
+    </div>
+    <div class="frame-body">
+      <iframe src="dashboard.html" width="393" height="620"></iframe>
+    </div>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame-head">
+      <div class="frame-name">📋 任务看板 <span class="tag">Kanban</span></div>
+      <div class="frame-size">393 × 852</div>
+    </div>
+    <div class="frame-body">
+      <iframe src="kanban.html" width="393" height="620"></iframe>
+    </div>
+  </div>
+</div>
+
+<div class="row row-2">
+  <div class="frame-wrap">
+    <div class="frame-head">
+      <div class="frame-name">🐙 GitHub 追踪 <span class="tag">活动</span></div>
+      <div class="frame-size">393 × 852</div>
+    </div>
+    <div class="frame-body">
+      <iframe src="github.html" width="393" height="620"></iframe>
+    </div>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame-head">
+      <div class="frame-name">⚙️ 连接设置 <span class="tag">配置</span></div>
+      <div class="frame-size">393 × 852</div>
+    </div>
+    <div class="frame-body">
+      <iframe src="settings.html" width="393" height="620"></iframe>
+    </div>
+  </div>
+</div>
+
+<div class="section-label">// 电脑端 · Web 仪表盘（1280 × 720）</div>
+
+<div class="row row-3">
+  <div class="frame-wrap">
+    <div class="frame-head">
+      <div class="frame-name">📊 主仪表盘 <span class="tag">总览</span></div>
+      <div class="frame-size">1280 × 720</div>
+    </div>
+    <div class="frame-body">
+      <iframe src="desktop/dashboard.html" width="800" height="540"></iframe>
+    </div>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame-head">
+      <div class="frame-name">📋 任务看板 <span class="tag">桌面</span></div>
+      <div class="frame-size">1280 × 720</div>
+    </div>
+    <div class="frame-body">
+      <iframe src="desktop/kanban.html" width="800" height="540"></iframe>
+    </div>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame-head">
+      <div class="frame-name">🐙 GitHub 追踪 <span class="tag">桌面</span></div>
+      <div class="frame-size">1280 × 720</div>
+    </div>
+    <div class="frame-body">
+      <iframe src="desktop/github.html" width="800" height="540"></iframe>
+    </div>
+  </div>
+</div>
+
+<div class="footnote">// 点击任意 iframe 可单独全屏查看 · 双端统一视觉语言：#0d1117 深色 / #161b22 面板 / 电蓝 #58a6ff</div>
+
+</body>
+</html>

@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=393, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>个人工作台 · 设置</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0a0e14;
+    display:flex; justify-content:center; align-items:flex-start;
+    min-height:100vh; color:#f5f5f5;
+  }
+  .phone {
+    width:393px; height:852px; background:#181818;
+    border-radius:36px; overflow:hidden; position:relative;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.45);
+    display:flex; flex-direction:column;
+  }
+  .statusbar {
+    height:32px; padding:6px 24px; display:flex; justify-content:space-between;
+    align-items:center; font-size:12px; font-weight:600; color:#d4d4d4;
+  }
+
+  .header {
+    padding:16px 20px 12px 20px;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .header-title { font-size:24px; font-weight:700; color:#ffffff; letter-spacing:-0.3px; }
+  .header-back {
+    width:36px; height:36px; border-radius:12px;
+    background:rgba(27,40,56,0.8);
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  .content {
+    flex:1; overflow-y:auto; padding: 0 16px 16px 16px;
+    -webkit-overflow-scrolling:touch;
+  }
+  .content::-webkit-scrollbar { display:none; }
+
+  .card {
+    background:#252525; border-radius:16px; padding:16px;
+    margin-bottom:14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+  .card-title {
+    font-size:12px; font-weight:600; color:#888888;
+    text-transform:uppercase; letter-spacing:0.08em; margin-bottom:14px;
+  }
+
+  /* Connection status */
+  .status-card { padding:20px 16px; }
+  .status-top {
+    display:flex; align-items:center; gap:14px; margin-bottom:14px;
+  }
+  .status-avatar {
+    width:52px; height:52px; border-radius:50%;
+    background:linear-gradient(135deg,#22c55e,#166534);
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px; font-weight:700; color:#fff;
+    position:relative;
+  }
+  .status-dot {
+    position:absolute; bottom:2px; right:2px;
+    width:14px; height:14px; border-radius:50%;
+    background:#34d399;
+    box-shadow:0 0 10px rgba(52,211,153,0.6), 0 0 0 3px #252525;
+  }
+  .status-info { flex:1; }
+  .status-name { font-size:15px; font-weight:600; color:#ffffff; margin-bottom:2px; }
+  .status-text { font-size:12px; color:#34d399; display:flex; align-items:center; gap:4px; }
+  .status-text .live-dot {
+    width:6px; height:6px; border-radius:50%; background:#34d399;
+    box-shadow:0 0 6px rgba(52,211,153,0.5);
+  }
+
+  .connection-list { display:flex; flex-direction:column; gap:10px; }
+  .conn-item {
+    display:flex; align-items:center; gap:12px; padding:8px 0;
+  }
+  .conn-item + .conn-item { border-top:1px solid rgba(255,255,255,0.04); }
+  .conn-icon {
+    width:36px; height:36px; border-radius:10px;
+    background:rgba(34,197,94,0.12);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .conn-body { flex:1; }
+  .conn-name { font-size:13px; font-weight:500; color:#f5f5f5; }
+  .conn-meta { font-size:11px; color:#888888; margin-top:1px; }
+  .conn-status {
+    display:flex; align-items:center; gap:5px;
+    font-size:11px; font-weight:500;
+  }
+  .conn-status.online { color:#34d399; }
+  .conn-status.offline { color:#888888; }
+  .conn-status-dot {
+    width:6px; height:6px; border-radius:50%;
+  }
+  .conn-status.online .conn-status-dot { background:#34d399; box-shadow:0 0 6px rgba(52,211,153,0.5); }
+  .conn-status.offline .conn-status-dot { background:#555555; }
+
+  /* Settings items */
+  .settings-item {
+    display:flex; align-items:center; gap:12px; padding:10px 0;
+  }
+  .settings-item + .settings-item { border-top:1px solid rgba(255,255,255,0.04); }
+  .settings-icon {
+    width:36px; height:36px; border-radius:10px;
+    background:rgba(34,197,94,0.12);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .settings-body { flex:1; }
+  .settings-label { font-size:13px; font-weight:500; color:#f5f5f5; }
+  .settings-sub { font-size:11px; color:#888888; margin-top:1px; }
+
+  /* Toggle */
+  .toggle {
+    width:48px; height:28px; border-radius:14px;
+    background:#22c55e; position:relative;
+    cursor:pointer; flex-shrink:0;
+    transition: background 0.2s ease;
+  }
+  .toggle.off { background:rgba(255,255,255,0.12); }
+  .toggle::after {
+    content:''; position:absolute; top:3px; right:3px;
+    width:22px; height:22px; border-radius:50%;
+    background:#ffffff;
+    box-shadow:0 2px 6px rgba(0,0,0,0.2);
+    transition: transform 0.25s cubic-bezier(0.4, 0.0, 0.2, 1);
+  }
+  .toggle.off::after { transform: translateX(-20px); }
+
+  /* Input */
+  .input-group { margin-bottom:12px; }
+  .input-group:last-child { margin-bottom:0; }
+  .input-label {
+    font-size:12px; color:#888888; margin-bottom:6px; font-weight:500;
+  }
+  .input-field {
+    background:rgba(255,255,255,0.04);
+    border-radius:12px; padding:10px 14px;
+    font-size:13px; color:#f5f5f5; width:100%;
+    border:1px solid rgba(255,255,255,0.06);
+    outline:none;
+    font-family:inherit;
+  }
+  .input-field:focus {
+    border-color:rgba(34,197,94,0.4);
+    background:rgba(34,197,94,0.05);
+  }
+  .input-field::placeholder { color:#555555; }
+
+  /* Buttons */
+  .btn-row {
+    display:flex; gap:10px; margin-top:14px;
+  }
+  .btn {
+    flex:1; padding:12px 16px; border-radius:12px;
+    font-size:14px; font-weight:600; font-family:inherit;
+    text-align:center; cursor:pointer; border:none;
+    transition: background 0.2s ease;
+  }
+  .btn-primary {
+    background:linear-gradient(135deg,#22c55e,#166534);
+    color:#ffffff;
+    box-shadow:0 4px 16px rgba(34,197,94,0.4);
+  }
+  .btn-secondary {
+    background:rgba(255,255,255,0.06);
+    color:#888888;
+  }
+
+  /* Theme selector */
+  .theme-options { display:flex; gap:10px; }
+  .theme-option {
+    flex:1; padding:12px 8px; border-radius:12px;
+    background:rgba(255,255,255,0.04);
+    display:flex; flex-direction:column; align-items:center; gap:8px;
+    border:1px solid rgba(255,255,255,0.06);
+  }
+  .theme-option.active {
+    border-color:#22c55e;
+    background:rgba(34,197,94,0.1);
+  }
+  .theme-preview {
+    width:36px; height:24px; border-radius:6px;
+  }
+  .theme-preview.dark { background:linear-gradient(135deg,#181818,#0a0a0a); border:1px solid rgba(255,255,255,0.1); }
+  .theme-preview.blue { background:linear-gradient(135deg,#1f2937,#22c55e); border:1px solid rgba(255,255,255,0.1); }
+  .theme-preview.midnight { background:linear-gradient(135deg,#0a0a0a,#1a1a1a); border:1px solid rgba(255,255,255,0.1); }
+  .theme-label { font-size:11px; color:#d4d4d4; font-weight:500; }
+  .theme-option.active .theme-label { color:#4ade80; }
+
+  /* Nav */
+  .bottom-nav {
+    height:68px; background:#0a0a0a;
+    border-top:1px solid rgba(255,255,255,0.04);
+    display:flex; align-items:center; justify-content:space-around;
+    padding: 0 8px 6px 8px;
+  }
+  .nav-item {
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    padding:6px 12px; border-radius:20px;
+  }
+  .nav-item svg { width:20px; height:20px; color:#555555; }
+  .nav-item span { font-size:10px; color:#555555; font-weight:500; }
+  .nav-item.active { background:rgba(34,197,94,0.2); }
+  .nav-item.active svg { color:#4ade80; }
+  .nav-item.active span { color:#4ade80; font-weight:600; }
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <div class="statusbar">
+    <span>21:37</span>
+    <span>
+      <svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="0.5" y="0.5" width="16" height="11" rx="2"/>
+        <rect x="18" y="3.5" width="1.5" height="5" rx="0.5" fill="currentColor"/>
+        <rect x="2" y="2" width="3" height="8" rx="0.5" fill="currentColor"/>
+        <rect x="6" y="2" width="3" height="8" rx="0.5" fill="currentColor"/>
+        <rect x="10" y="2" width="3" height="8" rx="0.5" fill="currentColor"/>
+      </svg>
+    </span>
+  </div>
+
+  <div class="header">
+    <div class="header-back">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d4d4d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+    </div>
+    <div class="header-title">设置</div>
+    <div></div>
+  </div>
+
+  <div class="content">
+
+    <!-- Connection status -->
+    <div class="card status-card">
+      <div class="card-title" style="margin-bottom:16px;">连接状态</div>
+      <div class="status-top">
+        <div class="status-avatar">
+          L
+          <div class="status-dot"></div>
+        </div>
+        <div class="status-info">
+          <div class="status-name">Liu Developer</div>
+          <div class="status-text"><span class="live-dot"></span> 在线 · 最后活跃 刚刚</div>
+        </div>
+      </div>
+      <div class="connection-list">
+        <div class="conn-item">
+          <div class="conn-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6c-1.11.91-2.52 1.49-4 1.49"/>
+              <path d="M12 2a10 10 0 0110 10c0 4.42-2.87 8.17-7 9.5"/>
+            </svg>
+          </div>
+          <div class="conn-body">
+            <div class="conn-name">GitHub</div>
+            <div class="conn-meta">@liu-dev · 128 仓库</div>
+          </div>
+          <div class="conn-status online"><div class="conn-status-dot"></div>已连接</div>
+        </div>
+        <div class="conn-item">
+          <div class="conn-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+            </svg>
+          </div>
+          <div class="conn-body">
+            <div class="conn-name">Jira 看板</div>
+            <div class="conn-meta">Sprint 14 · 12 任务</div>
+          </div>
+          <div class="conn-status online"><div class="conn-status-dot"></div>已连接</div>
+        </div>
+        <div class="conn-item">
+          <div class="conn-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/>
+            </svg>
+          </div>
+          <div class="conn-body">
+            <div class="conn-name">Google 日历</div>
+            <div class="conn-meta">主日历 + 工作日历</div>
+          </div>
+          <div class="conn-status offline"><div class="conn-status-dot"></div>未授权</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Theme -->
+    <div class="card">
+      <div class="card-title">主题外观</div>
+      <div class="theme-options">
+        <div class="theme-option">
+          <div class="theme-preview dark"></div>
+          <span class="theme-label">深蓝</span>
+        </div>
+        <div class="theme-option active">
+          <div class="theme-preview blue"></div>
+          <span class="theme-label">电蓝</span>
+        </div>
+        <div class="theme-option">
+          <div class="theme-preview midnight"></div>
+          <span class="theme-label">午夜</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="card">
+      <div class="card-title">偏好设置</div>
+      <div class="settings-item">
+        <div class="settings-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 01-3.46 0"/>
+          </svg>
+        </div>
+        <div class="settings-body">
+          <div class="settings-label">推送通知</div>
+          <div class="settings-sub">接收任务更新和 GitHub 动态</div>
+        </div>
+        <div class="toggle"></div>
+      </div>
+      <div class="settings-item">
+        <div class="settings-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a10 10 0 0110 10c0 4.42-2.87 8.17-7 9.5"/>
+            <path d="M2 12h10"/>
+          </svg>
+        </div>
+        <div class="settings-body">
+          <div class="settings-label">GitHub 实时同步</div>
+          <div class="settings-sub">自动拉取最新动态</div>
+        </div>
+        <div class="toggle"></div>
+      </div>
+      <div class="settings-item">
+        <div class="settings-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+          </svg>
+        </div>
+        <div class="settings-body">
+          <div class="settings-label">专注模式</div>
+          <div class="settings-sub">隐藏非紧急通知</div>
+        </div>
+        <div class="toggle off"></div>
+      </div>
+      <div class="settings-item">
+        <div class="settings-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/>
+          </svg>
+        </div>
+        <div class="settings-body">
+          <div class="settings-label">日程提醒</div>
+          <div class="settings-sub">每日 9:00 发送摘要</div>
+        </div>
+        <div class="toggle off"></div>
+      </div>
+    </div>
+
+    <!-- Profile edit -->
+    <div class="card">
+      <div class="card-title">个人信息</div>
+      <div class="input-group">
+        <div class="input-label">显示名称</div>
+        <input class="input-field" type="text" value="Liu Developer">
+      </div>
+      <div class="input-group">
+        <div class="input-label">GitHub 用户名</div>
+        <input class="input-field" type="text" value="@liu-dev">
+      </div>
+      <div class="input-group">
+        <div class="input-label">个人签名</div>
+        <input class="input-field" type="text" value="全栈工程师 · 热爱开源" placeholder="写点什么...">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary">取消</button>
+        <button class="btn btn-primary">保存修改</button>
+      </div>
+    </div>
+
+    <!-- Danger -->
+    <div class="card">
+      <div class="card-title">数据安全</div>
+      <div class="settings-item" style="padding:8px 0;">
+        <div class="settings-icon" style="background:rgba(239,68,68,0.12);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+          </svg>
+        </div>
+        <div class="settings-body">
+          <div class="settings-label" style="color:#f87171;">清除缓存与数据</div>
+          <div class="settings-sub">这将删除所有本地数据</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:16px;"></div>
+  </div>
+
+  <div class="bottom-nav">
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+        <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+      </svg>
+      <span>看板</span>
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+        <path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/>
+      </svg>
+      <span>笔记</span>
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 19c-5 1.5-5-2.5-7-3m14 6c-1.11.91-2.52 1.49-4 1.49"/>
+        <path d="M12 2a10 10 0 0110 10c0 4.42-2.87 8.17-7 9.5"/>
+        <path d="M2 12h10"/>
+      </svg>
+      <span>GitHub</span>
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+      </svg>
+      <span>仪表盘</span>
+    </div>
+    <div class="nav-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+      </svg>
+      <span>设置</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

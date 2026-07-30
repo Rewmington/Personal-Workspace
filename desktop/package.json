@@ -1,0 +1,52 @@
+{
+  "name": "personal-workstation-desktop",
+  "version": "0.1.0",
+  "description": "个人工作台 Windows 桌面版",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.personalworkstation.desktop",
+    "productName": "个人工作台",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "assets",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web",
+        "to": "web"
+      },
+      {
+        "from": "../dist/personal-workstation-server.exe",
+        "to": "server/personal-workstation-server.exe"
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "win": {
+      "icon": "assets/workstation.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    }
+  }
+}
