@@ -192,6 +192,10 @@ function registerIpc() {
     }
     return { ...serverConfig, localUrl: localUrl(), lanUrls: networkUrls() };
   });
+  ipcMain.handle("directory:choose", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory", "createDirectory"] });
+    return result.canceled ? null : result.filePaths[0];
+  });
 }
 
 async function boot() {

@@ -8,6 +8,7 @@ const state = {
   tool: "json",
   noteEditingId: null,
   noteTag: "all",
+  noteMode: "edit",
   taskEditingId: null,
 };
 
@@ -15,9 +16,80 @@ if (window.workstationDesktop) state.baseUrl = window.location.origin;
 
 const $ = (selector) => document.querySelector(selector);
 const content = $("#content");
+let realtimeSocket = null;
+let realtimeRefreshTimer = null;
+
+class ReconnectingWebSocket {
+  constructor(url) {
+    this.url = url;
+    this.retryCount = 0;
+    this.lastSeq = 0;
+    this.timer = null;
+    this.connect();
+  }
+  connect() {
+    if (this.ws) { this.ws.onclose = null; this.ws.close(); }
+    setServerStatus(false, this.retryCount ? "实时同步重连中" : "实时同步连接中");
+    this.ws = new WebSocket(this.url);
+    this.ws.onopen = () => {
+      this.retryCount = 0;
+      setServerStatus(true, "服务已连接 · 实时同步");
+      this.ws.send(JSON.stringify({ type: "sync_request", last_seq: this.lastSeq }));
+    };
+    this.ws.onmessage = (event) => {
+      let message;
+      try { message = JSON.parse(event.data); } catch (_) { return; }
+      if (message.seq) this.lastSeq = Math.max(this.lastSeq, message.seq);
+      if (message.type === "ping") { this.ws.send(JSON.stringify({ type: "pong" })); return; }
+      if (["sync_state", "task_created", "task_updated", "task_deleted", "note_created", "note_updated", "note_deleted", "snippet_created", "snippet_updated", "snippet_deleted", "board_created", "column_created"].includes(message.type)) {
+        window.clearTimeout(realtimeRefreshTimer);
+        realtimeRefreshTimer = window.setTimeout(() => navigate(state.view), 180);
+      }
+    };
+    this.ws.onclose = () => {
+      setServerStatus(false, "实时同步重连中");
+      const delay = Math.min(1000 * (2 ** this.retryCount), 30000) * (0.75 + Math.random() * 0.5);
+      this.retryCount += 1;
+      this.timer = window.setTimeout(() => this.connect(), delay);
+    };
+    this.ws.onerror = () => this.ws.close();
+  }
+}
+
+function startRealtime() {
+  if (realtimeSocket?.timer) window.clearTimeout(realtimeSocket.timer);
+  const url = new URL(state.baseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = "/ws";
+  url.search = "";
+  realtimeSocket = new ReconnectingWebSocket(url.toString());
+}
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
+}
+
+// Markdown 渲染配置（marked v4 + highlight.js + DOMPurify）。
+// marked v5 已移除 setOptions.highlight 回调，故锁定 4.3.0 以沿用回调式高亮。
+if (window.marked && window.hljs) {
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+    headerIds: false,
+    highlight(code, lang) {
+      if (lang && hljs.getLanguage(lang)) {
+        try { return hljs.highlight(code, { language: lang }).value; } catch (_) { /* fall through */ }
+      }
+      try { return hljs.highlightAuto(code).value; } catch (_) { return code; }
+    },
+  });
+}
+
+// 渲染 Markdown 原文为已清理的 HTML。输出统一经 DOMPurify 处理以防 XSS。
+function renderMarkdown(rawMd) {
+  if (!rawMd || !window.marked) return "";
+  const html = marked.parse(rawMd);
+  return window.DOMPurify ? window.DOMPurify.sanitize(html) : html;
 }
 
 async function api(path, options = {}) {
@@ -39,6 +111,24 @@ function toast(message, isError = false) {
   toast.timer = window.setTimeout(() => node.classList.remove("show"), 2600);
 }
 
+let confirmResolver = null;
+function confirmAction(message, title = "确认删除") {
+  const dialog = $("#confirm-dialog");
+  if (!dialog) return Promise.resolve(window.confirm(message));
+  $("#confirm-title").textContent = title;
+  $("#confirm-message").textContent = message;
+  dialog.showModal();
+  return new Promise((resolve) => { confirmResolver = resolve; });
+}
+
+function setNavBadge(id, value) {
+  const badge = $("#" + id);
+  if (!badge) return;
+  const count = Number(value) || 0;
+  badge.textContent = count > 99 ? "99+" : String(count);
+  badge.hidden = count <= 0;
+}
+
 function setServerStatus(online, label) {
   const node = $("#server-status");
   node.innerHTML = `<span class="status-dot ${online ? "online" : "offline"}"></span><span>${escapeHtml(label)}</span>`;
@@ -57,7 +147,7 @@ function showError(error) { content.innerHTML = `<div class="empty">加载失败
 async function navigate(view) {
   state.view = view;
   document.querySelectorAll("[data-view]").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
-  const titles = { dashboard: "仪表盘", kanban: "任务看板", notes: "笔记", github: "GitHub", tools: "开发工具", settings: "连接设置" };
+  const titles = { dashboard: "仪表盘", kanban: "任务看板", notes: "笔记", github: "GitHub", tools: "开发工具", snippets: "代码片段", git: "本地 Git", logs: "开发日志", focus: "番茄专注", settings: "连接设置" };
   $("#page-title").textContent = titles[view] || "仪表盘";
   showLoading();
   try {
@@ -66,6 +156,10 @@ async function navigate(view) {
     if (view === "notes") await renderNotes();
     if (view === "github") await renderGithub();
     if (view === "tools") renderTools();
+    if (view === "snippets") await renderSnippets();
+    if (view === "git") await renderLocalGit();
+    if (view === "logs") await renderLogs();
+    if (view === "focus") await renderFocus();
     if (view === "settings") await renderSettings();
     $("#last-updated").textContent = `同步于 ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
   } catch (error) { showError(error); }
@@ -81,6 +175,8 @@ async function renderDashboard() {
   const cells = heatmap.items.map((item) => `<span class="heat-cell ${item.count >= 5 ? "l4" : item.count >= 3 ? "l3" : item.count === 2 ? "l2" : item.count === 1 ? "l1" : ""}" title="${item.date}：${item.count} 次"></span>`).join("");
   const activities = activity.length ? activity.map((item) => `<div class="activity"><div class="mini-avatar">${escapeHtml((item.actor || "G").slice(0, 1).toUpperCase())}</div><div><strong>${escapeHtml(item.actor || "GitHub")}</strong><p>${escapeHtml(eventLabel(item.type))}</p><time>${formatDate(item.created_at)}</time></div></div>`).join("") : '<div class="empty">还没有 GitHub 活动，配置账号后刷新即可。</div>';
   const completion = Math.min(100, Number(summary.task_completion_rate || 0));
+  setNavBadge("kanban-badge", summary.tasks_total);
+  setNavBadge("github-badge", summary.github_repositories);
   const repoCards = repos.slice(0, 3).map((repo) => `<article class="repo-card"><h3>${escapeHtml(repo.name)}</h3><p>${escapeHtml(repo.description || "暂无描述")}</p><div class="repo-meta"><span>${escapeHtml(repo.language || "未知语言")}</span><span>★ ${repo.stars || 0}</span><a class="repo-link" href="${escapeHtml(repo.html_url || "#")}" target="_blank" rel="noreferrer">打开仓库 ↗</a></div></article>`).join("");
   const today = new Date().toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
   content.innerHTML = `<div class="view-head"><div><div class="eyebrow">${today.toUpperCase()}</div><h2 id="dashboard-greeting">下午好，Liu</h2><p>这是你的本地工作概览。</p></div><button class="secondary-button" data-view="kanban">查看任务</button></div>
@@ -100,6 +196,7 @@ async function renderKanban() {
   if (!state.boards.length) throw new Error("还没有创建看板");
   if (!state.boardId || !state.boards.some((board) => board.id === state.boardId)) state.boardId = state.boards[0].id;
   state.columns = await api(`/api/boards/${state.boardId}/tasks`);
+  setNavBadge("kanban-badge", state.columns.reduce((total, column) => total + column.tasks.length, 0));
   renderKanbanMarkup();
 }
 
@@ -168,7 +265,7 @@ async function taskAction(action, taskId) {
       return;
     }
     if (action === "delete") {
-      if (!window.confirm(`确认删除“${task.title}”？`)) return;
+      if (!(await confirmAction(`确认删除“${task.title}”？`))) return;
       await api(`/api/tasks/${taskId}`, { method: "DELETE" });
       state.kanbanUndo = state.kanbanUndo.filter((item) => item.taskId !== taskId);
       toast("任务已删除");
@@ -207,7 +304,8 @@ async function renderNotes() {
 
 function noteMarkup(note) {
   const tags = (note.tags || []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
-  return `<article class="note-card"><h3>${escapeHtml(note.title)}</h3><p>${escapeHtml(note.content || "暂无内容")}</p><div class="tags">${tags || '<span class="tag">未分类</span>'}</div><div class="repo-meta"><span>${formatDate(note.updated_at)}</span><span>#${note.id}</span></div><div class="note-actions"><button class="small-button" data-note-action="edit" data-note-id="${note.id}">编辑</button><button class="small-button danger" data-note-action="delete" data-note-id="${note.id}">删除</button></div></article>`;
+  const excerpt = renderMarkdown(note.content || "") || "<span class=\"muted\">暂无内容</span>";
+  return `<article class="note-card"><h3>${escapeHtml(note.title)}</h3><div class="note-excerpt">${excerpt}</div><div class="tags">${tags || '<span class="tag">未分类</span>'}</div><div class="repo-meta"><span>${formatDate(note.updated_at)}</span><span>#${note.id}</span></div><div class="note-actions"><button class="small-button" data-note-action="edit" data-note-id="${note.id}">编辑</button><button class="small-button danger" data-note-action="delete" data-note-id="${note.id}">删除</button></div></article>`;
 }
 
 function bindNoteCards() {
@@ -222,7 +320,7 @@ async function noteAction(action, noteId) {
       return;
     }
     const title = document.querySelector(`[data-note-id="${noteId}"][data-note-action="delete"]`)?.closest(".note-card")?.querySelector("h3")?.textContent || "这篇笔记";
-    if (!window.confirm(`确认删除“${title}”？`)) return;
+    if (!(await confirmAction(`确认删除“${title}”？`))) return;
     await api(`/api/notes/${noteId}`, { method: "DELETE" });
     toast("笔记已删除");
     await renderNotes();
@@ -231,6 +329,7 @@ async function noteAction(action, noteId) {
 
 async function renderGithub() {
   const [repos, activity] = await Promise.all([api("/api/github/repos"), api("/api/github/activity?limit=20")]);
+  setNavBadge("github-badge", repos.length);
   content.innerHTML = `<div class="view-head"><div><div class="eyebrow">OPEN SOURCE ACTIVITY</div><h2>GitHub 追踪</h2><p>服务端缓存 ${repos.length} 个仓库，${activity.length} 条近期活动。</p></div><button id="github-refresh" class="primary-button">刷新 GitHub</button></div><div class="github-layout"><div class="panel"><div class="panel-head"><h3>近期活动</h3><span>${activity.length} 条</span></div><div class="activity-list">${activity.length ? activity.map((item) => `<div class="activity"><div class="mini-avatar">${escapeHtml((item.actor || "G").slice(0, 1).toUpperCase())}</div><div><strong>${escapeHtml(item.actor || "GitHub")}</strong><p>${escapeHtml(eventLabel(item.type))}</p><time>${formatDate(item.created_at)}</time></div></div>`).join("") : '<div class="empty">暂无缓存活动。</div>'}</div></div><div class="panel"><div class="panel-head"><h3>仓库列表</h3><span>${repos.length} 个</span></div><div class="repo-grid">${repos.length ? repos.map((repo) => `<article class="repo-card"><h3>${escapeHtml(repo.name)}</h3><p>${escapeHtml(repo.description || "暂无描述")}</p><div class="repo-meta"><span>${escapeHtml(repo.language || "未知语言")}</span><span>★ ${repo.stars}</span><a class="repo-link" href="${escapeHtml(repo.html_url || "#")}" target="_blank" rel="noreferrer">打开仓库 ↗</a></div></article>`).join("") : '<div class="empty">请先在服务端配置 GitHub 用户名。</div>'}</div></div></div>`;
   $("#github-refresh").addEventListener("click", async () => {
     const button = $("#github-refresh");
@@ -239,8 +338,41 @@ async function renderGithub() {
   });
 }
 
+async function renderSnippets() {
+  const [items, meta] = await Promise.all([api("/api/snippets"), api("/api/snippets/meta")]);
+  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">SNIPPET LIBRARY</div><h2>代码片段</h2><p>${items.length} 个可复用片段</p></div><button id="snippet-save" class="primary-button">＋ 保存片段</button></div><div class="panel"><div class="snippet-toolbar"><input id="snippet-q" class="search" placeholder="搜索标题、代码或描述"><select id="snippet-language" class="filter-select"><option value="">全部语言</option>${Object.keys(meta.languages).sort().map((x) => `<option>${escapeHtml(x)}</option>`).join("")}</select></div><div id="snippets-grid" class="notes-grid" style="margin-top:14px">${items.length ? items.map(snippetMarkup).join("") : '<div class="empty">还没有代码片段。</div>'}</div></div>`;
+  const repaint = async () => { const q = encodeURIComponent($("#snippet-q").value); const lang = encodeURIComponent($("#snippet-language").value); const data = await api(`/api/snippets?q=${q}&language=${lang}`); $("#snippets-grid").innerHTML = data.length ? data.map(snippetMarkup).join("") : '<div class="empty">没有匹配片段。</div>'; bindSnippetActions(); };
+  $("#snippet-q").addEventListener("input", repaint); $("#snippet-language").addEventListener("change", repaint); $("#snippet-save").addEventListener("click", () => openSnippetEditor()); bindSnippetActions();
+}
+function snippetMarkup(item) { return `<article class="note-card snippet-card"><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.description || item.language)}</p><pre class="snippet-preview"><code>${escapeHtml(item.code.split("\n").slice(0, 5).join("\n"))}</code></pre><div class="tags">${(item.tags || []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div><div class="note-actions"><button class="small-button" data-copy-snippet="${item.id}">复制</button><button class="small-button danger" data-delete-snippet="${item.id}">删除</button></div></article>`; }
+function bindSnippetActions() { document.querySelectorAll("[data-copy-snippet]").forEach((b) => b.onclick = async () => { const item = await api(`/api/snippets/${b.dataset.copySnippet}`); await navigator.clipboard.writeText(item.code); toast("代码已复制"); }); document.querySelectorAll("[data-delete-snippet]").forEach((b) => b.onclick = async () => { if (await confirmAction("删除这个代码片段？")) { await api(`/api/snippets/${b.dataset.deleteSnippet}`, { method: "DELETE" }); await renderSnippets(); } }); }
+function openSnippetEditor() { const title = prompt("片段标题"); if (!title) return; const code = prompt("粘贴代码"); if (code == null) return; const language = prompt("语言（如 python、js）", "plain") || "plain"; const tags = (prompt("标签，用逗号分隔", "") || "").split(",").map((x) => x.trim()).filter(Boolean); api("/api/snippets", { method: "POST", body: JSON.stringify({ title, code, language, tags }) }).then(() => { toast("片段已保存"); renderSnippets(); }).catch((e) => toast(e.message, true)); }
+
+async function renderLocalGit() {
+  const repos = await api("/api/git/repos");
+  const stored = JSON.parse(localStorage.getItem("git_scan_directories") || "[]");
+  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">LOCAL REPOSITORIES</div><h2>本地 Git 仓库</h2><p>选择一个工作目录，扫描该目录下的 Git 仓库。</p></div><button id="git-refresh" class="primary-button">开始扫描</button></div><section class="git-scan-panel panel"><div class="panel-head"><div><h3>扫描工作目录</h3><span>只读取 Git 状态，不修改仓库内容</span></div><button id="git-choose" class="secondary-button">选择文件夹</button></div><div id="git-directories" class="git-directories">${stored.length ? stored.map((path) => `<span class="git-directory">${escapeHtml(path)}<button data-remove-dir="${escapeHtml(path)}" title="移除">×</button></span>`).join("") : '<span class="muted">尚未选择目录</span>'}</div><div class="git-scan-hint">桌面版会打开系统文件夹选择器；浏览器模式可点击“选择文件夹”后手动输入路径。</div></section><div class="repo-grid">${repos.length ? repos.map((r) => `<article class="repo-card" data-repo-card="${r.id}"><div class="repo-card-head"><div><h3>${escapeHtml(r.name)}</h3><p>${escapeHtml(r.path)}</p></div></div><div class="repo-meta"><span>${escapeHtml(r.branch || "无分支")}</span><span>${r.changed + r.staged + r.untracked} 项变更</span></div><small class="muted">最近提交：${escapeHtml(r.last_commit || "暂无")}</small><button class="small-button repo-details-button" data-git-details="${r.id}">查看变更</button><div class="repo-details" id="git-details-${r.id}" hidden></div></article>`).join("") : '<div class="empty">选择工作目录后开始扫描。</div>'}</div>`;
+  const saveDirs = (dirs) => { localStorage.setItem("git_scan_directories", JSON.stringify(dirs)); return dirs; };
+  $("#git-choose").onclick = async () => { let selected = null; if (window.workstationDesktop?.chooseDirectory) selected = await window.workstationDesktop.chooseDirectory(); if (!selected) selected = prompt("输入工作目录的完整路径", stored[0] || ""); if (!selected) return; const dirs = saveDirs([...new Set([...stored, selected])]); await renderLocalGit(); };
+  $("#git-refresh").onclick = async () => { const dirs = JSON.parse(localStorage.getItem("git_scan_directories") || "[]"); if (!dirs.length) { toast("请先选择工作目录", true); return; } const button = $("#git-refresh"); button.disabled = true; try { await api("/api/git/repos/refresh", { method: "POST", body: JSON.stringify(dirs) }); toast("Git 仓库扫描完成"); await renderLocalGit(); } catch (e) { toast(e.message, true); } finally { button.disabled = false; } };
+  document.querySelectorAll("[data-remove-dir]").forEach((button) => button.onclick = () => { saveDirs(stored.filter((path) => path !== button.dataset.removeDir)); renderLocalGit(); });
+  document.querySelectorAll("[data-git-details]").forEach((button) => button.onclick = async () => { const target = $("#git-details-" + button.dataset.gitDetails); if (!target.hidden) { target.hidden = true; button.textContent = "查看变更"; return; } button.disabled = true; try { const detail = await api(`/api/git/repos/${button.dataset.gitDetails}`); target.innerHTML = `<div class="git-detail-section"><strong>工作区变更 ${detail.changes.length} 项</strong>${detail.changes.length ? detail.changes.map((change) => `<div class="git-change"><span class="git-change-status ${change.status}">${change.status === "untracked" ? "未跟踪" : change.status === "staged" ? "已暂存" : "已修改"}</span><code>${escapeHtml(change.path)}</code></div>`).join("") : '<span class="muted">工作区干净</span>'}</div><div class="git-detail-section"><strong>提交记录 ${detail.commits.length} 条</strong>${detail.commits.length ? detail.commits.map((commit) => `<div class="git-commit"><code>${escapeHtml(commit.sha.slice(0, 7))}</code><span>${escapeHtml(commit.message)}</span><time>${formatDate(commit.pushed_at)}</time></div>`).join("") : '<span class="muted">暂无提交记录</span>'}</div>`; target.hidden = false; button.textContent = "收起变更"; } catch (e) { toast(e.message, true); } finally { button.disabled = false; } });
+}
+
+async function renderFocus() { const today = await api("/api/focus/today"); content.innerHTML = `<div class="view-head"><div><div class="eyebrow">FOCUS MODE</div><h2>番茄专注</h2><p>今日完成 ${today.count} 个番茄，共 ${today.total_minutes} 分钟。</p></div></div><div class="panel focus-panel"><div id="focus-clock" class="focus-clock">25:00</div><label class="tool-field">关联任务<input id="focus-title" placeholder="可选"></label><div class="tool-actions"><button id="focus-start" class="primary-button">开始 25 分钟</button><button id="focus-stop" class="secondary-button" disabled>完成</button><button id="focus-interrupt" class="secondary-button" disabled>中断</button></div></div>`; let timer = null; let session = null; let end = 0; const tick = () => { const left = Math.max(0, Math.ceil((end - Date.now()) / 1000)); $("#focus-clock").textContent = `${String(Math.floor(left / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`; if (!left && timer) { clearInterval(timer); timer = null; } }; $("#focus-start").onclick = async () => { session = await api("/api/focus/start", { method: "POST", body: JSON.stringify({ duration: 1500, task_title: $("#focus-title").value }) }); end = Date.now() + 1500000; timer = setInterval(tick, 500); tick(); $("#focus-start").disabled = true; $("#focus-stop").disabled = false; $("#focus-interrupt").disabled = false; }; const finish = async (path) => { if (!session) return; await api(`/api/focus/${session.id}/${path}`, { method: "PUT", body: "{}" }); toast(path === "stop" ? "专注已完成" : "专注已中断"); await renderFocus(); }; $("#focus-stop").onclick = () => finish("stop"); $("#focus-interrupt").onclick = () => finish("interrupt"); }
+
+async function renderLogs(selectedDate = new Date()) {
+  const dateValue = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}-${String(selectedDate.getDate()).padStart(2, "0")}`;
+  const [log, streak] = await Promise.all([api(`/api/logs?date=${dateValue}`), api("/api/logs/streak")]);
+  const moods = [["happy", "愉快", "☀"], ["neutral", "平静", "—"], ["frustrated", "受阻", "!"], ["tired", "疲惫", "…"]];
+  content.innerHTML = `<div class="log-head"><div><div class="eyebrow">DAILY DEVELOPMENT LOG</div><div class="log-title-row"><button id="log-prev" class="icon-button" title="前一天">‹</button><div><h2>每日开发日志</h2><p id="log-date-label">${selectedDate.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}</p></div><button id="log-next" class="icon-button" title="后一天">›</button></div></div><div class="log-head-actions"><span class="streak-pill">连续记录 <strong>${streak.streak}</strong> 天</span><button id="log-save" class="primary-button">保存日志</button></div></div><div class="log-layout"><aside class="log-sidebar panel"><div class="panel-head"><h3>今天的状态</h3><span>${dateValue}</span></div><div class="mood-grid">${moods.map(([value, label, icon]) => `<button class="mood-choice ${log.mood === value ? "active" : ""}" data-mood="${value}"><b>${icon}</b><span>${label}</span></button>`).join("")}</div><div class="log-tip"><strong>记录建议</strong><p>写下完成的事项、遇到的问题和下一步计划，支持 Markdown。</p></div></aside><section class="log-editor panel"><div class="log-editor-bar"><span>开发记录</span><div class="log-mode-switch"><button class="active" data-log-mode="edit">编辑</button><button data-log-mode="preview">预览</button><button data-log-mode="split">分栏</button></div></div><div id="log-edit-body" class="log-edit-body"><textarea id="log-content" placeholder="# 今天完成了什么？\n\n- 完成…\n- 遇到…\n\n## 明天计划">${escapeHtml(log.content)}</textarea><div id="log-preview" class="log-preview"><span class="muted">预览区为空</span></div></div></section></div>`;
+  let mode = "edit"; const input = $("#log-content"), preview = $("#log-preview"); const refreshPreview = () => { preview.innerHTML = renderMarkdown(input.value) || '<span class="muted">预览区为空</span>'; }; const applyMode = (next) => { mode = next; $("#log-edit-body").dataset.mode = next; document.querySelectorAll("[data-log-mode]").forEach((button) => button.classList.toggle("active", button.dataset.logMode === next)); refreshPreview(); }; input.oninput = refreshPreview; document.querySelectorAll("[data-log-mode]").forEach((button) => button.onclick = () => applyMode(button.dataset.logMode));
+  document.querySelectorAll("[data-mood]").forEach((button) => button.onclick = () => { document.querySelectorAll("[data-mood]").forEach((item) => item.classList.remove("active")); button.classList.add("active"); });
+  $("#log-prev").onclick = () => renderLogs(new Date(selectedDate.getTime() - 86400000)); $("#log-next").onclick = () => renderLogs(new Date(selectedDate.getTime() + 86400000)); $("#log-save").onclick = async () => { const mood = document.querySelector("[data-mood].active")?.dataset.mood || ""; await api(`/api/logs/${log.id}`, { method: "PUT", body: JSON.stringify({ content: input.value, mood }) }); toast("开发日志已保存"); }; applyMode(mode);
+}
+
 function renderTools() {
-  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">DEVELOPER TOOLKIT</div><h2>开发工具</h2><p>常用数据处理工具在本地运行，不会上传内容。</p></div><span class="tool-local-badge">仅本地处理</span></div><div class="tool-tabs" role="tablist"><button class="tool-tab" data-tool-tab="json">JSON</button><button class="tool-tab" data-tool-tab="base64">Base64</button><button class="tool-tab" data-tool-tab="url">URL 编解码</button><button class="tool-tab" data-tool-tab="regex">正则测试</button></div><section id="tool-panel" class="tool-panel"></section>`;
+  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">DEVELOPER TOOLKIT</div><h2>开发工具</h2><p>常用数据处理工具在本地运行，不会上传内容。</p></div><span class="tool-local-badge">仅本地处理</span></div><div class="tool-tabs" role="tablist"><button class="tool-tab" data-tool-tab="json">JSON</button><button class="tool-tab" data-tool-tab="yaml">JSON ↔ YAML</button><button class="tool-tab" data-tool-tab="base64">Base64</button><button class="tool-tab" data-tool-tab="url">URL 编解码</button><button class="tool-tab" data-tool-tab="timestamp">时间戳</button><button class="tool-tab" data-tool-tab="jwt">JWT</button><button class="tool-tab" data-tool-tab="regex">正则测试</button></div><section id="tool-panel" class="tool-panel"></section>`;
   document.querySelectorAll("[data-tool-tab]").forEach((button) => button.addEventListener("click", () => {
     state.tool = button.dataset.toolTab;
     renderToolPanel();
@@ -257,14 +389,24 @@ function renderToolPanel() {
   if (state.tool === "base64") bindBase64Tool();
   if (state.tool === "url") bindUrlTool();
   if (state.tool === "regex") bindRegexTool();
+  if (state.tool === "yaml") bindYamlTool();
+  if (state.tool === "timestamp") bindTimestampTool();
+  if (state.tool === "jwt") bindJwtTool();
 }
 
 function toolMarkup(tool) {
+  if (tool === "yaml") return `<div class="tool-head"><div><h3>JSON 与 YAML</h3><p>轻量转换，使用浏览器内置 JSON 解析。</p></div></div><div class="tool-split"><label class="tool-field">输入<textarea id="yaml-input" rows="13" placeholder='JSON 或简单 YAML'></textarea></label><label class="tool-field">输出<textarea id="yaml-output" rows="13" readonly></textarea></label></div><div class="tool-actions"><button class="primary-button" id="yaml-to-json">YAML → JSON</button><button class="secondary-button" id="json-to-yaml">JSON → YAML</button></div>`;
+  if (tool === "timestamp") return `<div class="tool-head"><div><h3>时间戳转换</h3><p>自动识别秒或毫秒时间戳。</p></div></div><div class="tool-split"><label class="tool-field">输入<input id="timestamp-input" placeholder="例如 1710000000 或 2026-01-01"></label><label class="tool-field">输出<textarea id="timestamp-output" rows="8" readonly></textarea></label></div><div class="tool-actions"><button class="primary-button" id="timestamp-run">转换</button></div>`;
+  if (tool === "jwt") return `<div class="tool-head"><div><h3>JWT 解析</h3><p>仅在本地解码 Header 和 Payload，不验证签名。</p></div></div><label class="tool-field">Token<textarea id="jwt-input" rows="5" placeholder="粘贴 JWT"></textarea></label><label class="tool-field">结果<textarea id="jwt-output" rows="8" readonly></textarea></label><div class="tool-actions"><button class="primary-button" id="jwt-run">解析</button></div>`;
   if (tool === "base64") return `<div class="tool-head"><div><h3>Base64 编解码</h3><p>适合处理 UTF-8 文本、配置片段和短令牌。</p></div><button class="secondary-button" data-tool-copy="base64-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="base64-input" rows="13" placeholder="输入要编码或解码的文本"></textarea></label><label class="tool-field">输出<textarea id="base64-output" rows="13" readonly placeholder="结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="base64-encode">编码</button><button class="secondary-button" id="base64-decode">解码</button><button class="secondary-button" id="base64-clear">清空</button></div>`;
   if (tool === "url") return `<div class="tool-head"><div><h3>URL 编解码</h3><p>转换查询参数、路径片段和中文 URL。</p></div><button class="secondary-button" data-tool-copy="url-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="url-input" rows="13" placeholder="例如：个人工作台?tab=notes"></textarea></label><label class="tool-field">输出<textarea id="url-output" rows="13" readonly placeholder="结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="url-encode">编码</button><button class="secondary-button" id="url-decode">解码</button><button class="secondary-button" id="url-clear">清空</button></div>`;
   if (tool === "regex") return `<div class="tool-head"><div><h3>正则测试</h3><p>即时查看匹配结果和捕获组，支持 JavaScript 正则标志。</p></div></div><div class="regex-controls"><label class="tool-field">表达式<input id="regex-pattern" placeholder="例如：(?<name>\\w+)@\\w+\\.com"></label><label class="tool-field regex-flags">标志<input id="regex-flags" value="g" placeholder="gim"></label></div><label class="tool-field">测试文本<textarea id="regex-input" rows="8" placeholder="粘贴要测试的文本"></textarea></label><div class="tool-actions"><button class="primary-button" id="regex-run">运行匹配</button><button class="secondary-button" id="regex-clear">清空</button></div><div id="regex-output" class="regex-output"><div class="empty">输入表达式和文本后运行匹配。</div></div>`;
   return `<div class="tool-head"><div><h3>JSON 格式化</h3><p>校验、格式化或压缩 JSON，错误位置会直接提示。</p></div><button class="secondary-button" data-tool-copy="json-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="json-input" rows="15" placeholder="粘贴 JSON 数据"></textarea></label><label class="tool-field">输出<textarea id="json-output" rows="15" readonly placeholder="格式化结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="json-format">格式化</button><button class="secondary-button" id="json-minify">压缩</button><button class="secondary-button" id="json-clear">清空</button></div>`;
 }
+
+function bindYamlTool() { const input=$("#yaml-input"), output=$("#yaml-output"); $("#json-to-yaml").onclick=()=>{ try { const value=JSON.parse(input.value); output.value=Object.entries(value).map(([k,v])=>`${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n"); } catch(e) { output.value=`解析失败：${e.message}`; } }; $("#yaml-to-json").onclick=()=>{ try { const object={}; input.value.split(/\r?\n/).forEach((line)=>{ const i=line.indexOf(":"); if(i>0) object[line.slice(0,i).trim()]=line.slice(i+1).trim(); }); output.value=JSON.stringify(object,null,2); } catch(e) { output.value=`解析失败：${e.message}`; } }; }
+function bindTimestampTool() { $("#timestamp-run").onclick=()=>{ const raw=$("#timestamp-input").value.trim(); const n=Number(raw); const d=Number.isFinite(n) && raw !== "" ? new Date(raw.length>10?n:n*1000) : new Date(raw); $("#timestamp-output").value=Number.isNaN(d.getTime())?"无法识别时间":`${d.toISOString()}\n${d.toLocaleString("zh-CN")}`; }; }
+function bindJwtTool() { $("#jwt-run").onclick=()=>{ try { const parts=$("#jwt-input").value.trim().split("."); if(parts.length<2) throw new Error("JWT 至少包含两段"); const decode=(x)=>JSON.stringify(JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(x.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0)))),null,2); $("#jwt-output").value=`Header:\n${decode(parts[0])}\n\nPayload:\n${decode(parts[1])}`; } catch(e) { $("#jwt-output").value=`解析失败：${e.message}`; } }; }
 
 function bindJsonTool() {
   const input = $("#json-input");
@@ -349,9 +491,13 @@ async function renderSettings() {
     : `<div class="settings-note">这里用于连接已经运行的工作台服务。手机或其他电脑请填写运行服务电脑的局域网 IPv4 地址。</div>`;  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">LOCAL CONNECTION</div><h2>连接设置</h2><p>服务地址和 GitHub 凭据都保存在本机配置中。</p></div></div><div class="settings-grid"><div class="panel"><div class="panel-head"><h3>${desktopBridge ? "服务器监听" : "服务端地址"}</h3><span id="settings-status">${desktopBridge ? "运行中" : "未测试"}</span></div><form id="settings-form" class="settings-form"><label>${desktopBridge ? "监听 HOST" : "HOST"}<input name="host" value="${escapeHtml(configuredHost)}" placeholder="0.0.0.0"></label><label>PORT<input name="port" value="${escapeHtml(configuredPort)}" inputmode="numeric"></label>${listenerNote}<button class="primary-button">${desktopBridge ? "保存并重启服务" : "测试并保存"}</button></form></div><div class="panel"><div class="panel-head"><h3>GitHub 数据</h3><span id="github-settings-status">${github.token_configured ? "Token 已保存" : "未配置 Token"}</span></div><form id="github-settings-form" class="settings-form"><label>用户名<input name="username" value="${escapeHtml(github.username)}" placeholder="例如 octocat" required></label><label>Token<input name="token" type="password" autocomplete="off" placeholder="${github.token_configured ? "留空保留当前 Token" : "可选，公开数据可不填"}"></label><div class="settings-note">只允许在运行服务的电脑上保存。配置文件不会放进 Web 目录，也不会上传。</div><button class="primary-button" ${localHost ? "" : "disabled"}>保存 GitHub 设置</button></form></div></div><div class="panel"><div class="panel-head"><h3>当前能力</h3><span>v0.1.0</span></div><div class="progress-row"><span>REST API</span><strong class="delta">已连接</strong></div><div class="progress-row"><span>SQLite 数据</span><strong class="delta">本地</strong></div><div class="progress-row"><span>WebSocket</span><strong class="delta">已就绪</strong></div><div class="progress-row"><span>GitHub 缓存</span><strong class="delta">按需刷新</strong></div></div>`;
   const settingsGrid = content.querySelector(".settings-grid");
   settingsGrid?.insertAdjacentHTML("beforeend", `<div class="panel"><div class="panel-head"><h3>个人资料</h3><span id="profile-status">已同步</span></div><form id="profile-form" class="settings-form"><label>显示名称<input name="display_name" value="${escapeHtml(profile.display_name)}" maxlength="100" required></label><label>GitHub 用户名<input name="github_username" value="${escapeHtml(profile.github_username || github.username)}" maxlength="100" placeholder="可选"></label><div class="settings-note">保存后手机端连接此电脑时会自动同步。</div><button class="primary-button">保存个人资料</button></form></div>`);
+  settingsGrid?.insertAdjacentHTML("beforeend", '<div class="panel"><div class="panel-head"><h3>数据备份</h3><span>本机保存</span></div><div class="settings-note">导出 SQLite 可完整恢复；JSON 便于查看或迁移。恢复前会自动创建安全备份。</div><div class="backup-actions"><button id="backup-json" class="secondary-button">导出 JSON</button><button id="backup-sqlite" class="secondary-button">导出 SQLite</button></div><label class="backup-file">恢复文件<input id="backup-file" type="file" accept=".json,.db,application/json,application/x-sqlite3"></label><label>恢复方式<select id="backup-mode"><option value="replace">替换当前数据</option><option value="merge">合并 JSON 数据</option></select></label><button id="backup-import" class="primary-button">恢复备份</button></div>');
   const capabilityPanel = content.querySelector(".settings-grid + .panel");
   if (capabilityPanel && !$("#export-data")) capabilityPanel.insertAdjacentHTML("beforeend", '<div class="settings-export"><span>数据备份</span><button id="export-data" class="secondary-button">导出 JSON</button></div>');
   $("#export-data")?.addEventListener("click", exportLocalData);
+  $("#backup-json")?.addEventListener("click", () => downloadServerBackup("json"));
+  $("#backup-sqlite")?.addEventListener("click", () => downloadServerBackup("sqlite"));
+  $("#backup-import")?.addEventListener("click", importServerBackup);
   if (!localHost) toast("请在运行服务的电脑上用 127.0.0.1 打开设置页", true);
   $("#settings-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -363,6 +509,7 @@ async function renderSettings() {
         const result = await desktopBridge.saveServerConfig({ host, port });
         state.baseUrl = result.localUrl;
         window.localStorage.setItem("workstationBaseUrl", result.localUrl);
+        startRealtime();
         $("#settings-status").textContent = "已重启";
         setServerStatus(true, "服务已连接");
         toast("监听设置已保存，服务已重启");
@@ -371,6 +518,7 @@ async function renderSettings() {
         const result = await apiWithBase(nextUrl, "/api/health");
         state.baseUrl = nextUrl;
         window.localStorage.setItem("workstationBaseUrl", nextUrl);
+        startRealtime();
         $("#settings-status").textContent = "已连接";
         setServerStatus(true, "服务已连接");
         toast(result.message || "连接成功");
@@ -434,6 +582,41 @@ async function exportLocalData() {
   finally { if (button) button.disabled = false; }
 }
 
+async function downloadServerBackup(format) {
+  const button = format === "json" ? $("#backup-json") : $("#backup-sqlite");
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch(`${state.baseUrl}/api/backup/export?format=${format}`, { method: "POST" });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || "导出失败");
+    const blob = await response.blob();
+    const name = response.headers.get("content-disposition")?.match(/filename="?([^";]+)"?/i)?.[1] || `workstation_backup.${format === "sqlite" ? "db" : "json"}`;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url);
+    toast(`${format === "sqlite" ? "SQLite" : "JSON"} 备份已导出`);
+  } catch (error) { toast(error.message, true); }
+  finally { if (button) button.disabled = false; }
+}
+
+async function importServerBackup() {
+  const input = $("#backup-file");
+  const mode = $("#backup-mode")?.value || "replace";
+  const file = input?.files?.[0];
+  if (!file) { toast("请先选择备份文件", true); return; }
+  if (!window.confirm(`将以“${mode === "replace" ? "替换" : "合并"}”方式恢复 ${file.name}。恢复前会自动备份当前数据，是否继续？`)) return;
+  const button = $("#backup-import");
+  if (button) button.disabled = true;
+  try {
+    const body = new FormData(); body.append("file", file);
+    const response = await fetch(`${state.baseUrl}/api/backup/import?mode=${mode}`, { method: "POST", body });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || "恢复失败");
+    const result = await response.json();
+    toast(`恢复完成，安全备份：${result.safety_backup}`);
+    await navigate("settings");
+  } catch (error) { toast(error.message, true); }
+  finally { if (button) button.disabled = false; }
+}
+
 function openQuick(kind) {
   if (kind === "task") openNewTaskDialog();
   else if (kind === "note") {
@@ -443,6 +626,7 @@ function openQuick(kind) {
     $("#note-dialog-title").textContent = "新建笔记";
     $("#note-submit").textContent = "保存笔记";
     $("#note-dialog").showModal();
+    initNoteEditor();
   }
   else toast("请从侧边栏选择具体页面");
 }
@@ -499,6 +683,36 @@ function openNoteEditor(note) {
   $("#note-dialog-title").textContent = "编辑笔记";
   $("#note-submit").textContent = "更新笔记";
   $("#note-dialog").showModal();
+  initNoteEditor();
+}
+
+// 笔记编辑/预览三态切换 + 实时预览。模式：edit / preview / split。
+function initNoteEditor(mode = "edit") {
+  const dialog = $("#note-dialog");
+  if (!dialog) return;
+  const textarea = dialog.querySelector('textarea[name="content"]');
+  const preview = dialog.querySelector(".note-preview");
+  if (!textarea || !preview) return;
+
+  const render = () => { preview.innerHTML = renderMarkdown(textarea.value) || '<span class="muted">预览区为空</span>'; };
+  const applyMode = (next) => {
+    state.noteMode = next;
+    dialog.querySelectorAll(".note-mode").forEach((btn) => btn.classList.toggle("active", btn.dataset.noteMode === next));
+    dialog.dataset.noteMode = next;
+    render();
+  };
+
+  if (!textarea.dataset.bound) {
+    textarea.dataset.bound = "1";
+    textarea.addEventListener("input", render);
+  }
+  dialog.querySelectorAll(".note-mode").forEach((btn) => {
+    if (!btn.dataset.bound) {
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", () => applyMode(btn.dataset.noteMode));
+    }
+  });
+  applyMode(mode);
 }
 
 function bindViewButtons() {
@@ -563,6 +777,20 @@ $("#note-form").addEventListener("submit", async (event) => {
   } catch (error) { toast(error.message, true); }
 });
 
+$("#confirm-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  $("#confirm-dialog").close();
+  const resolve = confirmResolver;
+  confirmResolver = null;
+  resolve?.(true);
+});
+$("#confirm-cancel").addEventListener("click", () => {
+  $("#confirm-dialog").close();
+  const resolve = confirmResolver;
+  confirmResolver = null;
+  resolve?.(false);
+});
+
 
 async function loadGithubProfile() {
   try {
@@ -591,16 +819,22 @@ async function loadGithubProfile() {
 }
 async function boot() {
   try { await api("/api/health"); setServerStatus(true, "服务已连接"); } catch (_) { setServerStatus(false, "服务未连接"); }
+  startRealtime();
   loadGithubProfile();
   await navigate("dashboard");
+  initScratchpad();
+}
+
+function initScratchpad() {
+  const panel = $("#scratchpad"), input = $("#scratch-content"); if (!panel || !input) return;
+  input.value = localStorage.getItem("scratchpad_content") || "";
+  $("#scratch-toggle").onclick = () => panel.classList.toggle("collapsed");
+  input.oninput = () => localStorage.setItem("scratchpad_content", input.value);
+  $("#scratch-copy").onclick = async () => { await navigator.clipboard.writeText(input.value); toast("便签已复制"); };
+  $("#scratch-time").onclick = () => { const stamp = new Date().toLocaleString("zh-CN"); const start=input.selectionStart; input.value=input.value.slice(0,start)+stamp+input.value.slice(input.selectionEnd); input.selectionStart=input.selectionEnd=start+stamp.length; input.dispatchEvent(new Event("input")); };
+  $("#scratch-clear").onclick = async () => { if (await confirmAction("清空便签内容？", "清空快捷便签")) { input.value=""; input.dispatchEvent(new Event("input")); } };
+  $("#scratch-note").onclick = async () => { if (!input.value.trim()) return; await api("/api/notes", { method:"POST", body: JSON.stringify({ title:`便签 ${new Date().toLocaleDateString("zh-CN")}`, content:input.value, tags:["便签"] }) }); input.value=""; input.dispatchEvent(new Event("input")); toast("已转为笔记"); };
+  document.addEventListener("keydown", (event) => { if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "p") { event.preventDefault(); panel.classList.toggle("collapsed"); } });
 }
 
 boot();
-
-
-
-
-
-
-
-

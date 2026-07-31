@@ -113,6 +113,14 @@ data class ProfileUpdateRequest(
 )
 
 @Serializable
+data class BackupRestoreResponse(
+    val ok: Boolean = false,
+    val safety_backup: String = "",
+    val mode: String = "",
+    val format: String = "",
+)
+
+@Serializable
 data class BoardColumn(
     val id: Int,
     val board_id: Int,
@@ -166,3 +174,14 @@ data class BoardCreateRequest(val name: String)
 
 @Serializable
 data class ColumnCreateRequest(val name: String, val position: Int = 0)
+
+@Serializable
+data class Snippet(val id: Int, val title: String, val code: String, val language: String = "plain", val tags: List<String> = emptyList(), val description: String = "", val created_at: String = "", val updated_at: String = "")
+@Serializable
+data class SnippetCreateRequest(val title: String, val code: String, val language: String = "plain", val tags: List<String> = emptyList(), val description: String = "")
+@Serializable
+data class FocusSession(val id: Int, val task_id: Int? = null, val task_title: String = "", val duration: Int = 1500, val actual: Int = 0, val status: String = "running", val started_at: String = "", val ended_at: String = "")
+@Serializable
+data class DevLog(val id: Int, val date: String, val content: String = "", val mood: String = "", val tags: List<String> = emptyList(), val commits: List<String> = emptyList(), val created_at: String = "", val updated_at: String = "")
+@Serializable
+data class DevLogUpdateRequest(val content: String = "", val mood: String = "", val tags: List<String> = emptyList(), val commits: List<String> = emptyList())

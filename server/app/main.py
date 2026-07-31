@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import connect, dashboard, github, notes, profile, tasks
+from .api import backup, connect, dashboard, github, notes, profile, tasks, snippets, git, focus, logs
 from .database import init_db
 from .websocket.handler import websocket_endpoint
 
@@ -38,7 +38,12 @@ app.include_router(notes.router)
 app.include_router(github.router)
 app.include_router(profile.router)
 app.include_router(connect.router)
+app.include_router(backup.router)
 app.include_router(dashboard.router)
+app.include_router(snippets.router)
+app.include_router(git.router)
+app.include_router(focus.router)
+app.include_router(logs.router)
 
 WEB_DIR = Path(os.getenv("WORKSTATION_WEB_DIR", str(Path(__file__).resolve().parents[2] / "web")))
 if WEB_DIR.exists():

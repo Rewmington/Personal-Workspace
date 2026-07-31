@@ -74,6 +74,35 @@ CREATE INDEX IF NOT EXISTS idx_columns_board ON columns(board_id, position);
 CREATE INDEX IF NOT EXISTS idx_tasks_column ON tasks(column_id, position);
 CREATE INDEX IF NOT EXISTS idx_commits_pushed ON github_commits(pushed_at);
 CREATE INDEX IF NOT EXISTS idx_events_created ON github_events(created_at);
+CREATE TABLE IF NOT EXISTS snippets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  code TEXT NOT NULL,
+  language TEXT NOT NULL DEFAULT 'plain',
+  tags TEXT NOT NULL DEFAULT '[]',
+  description TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_snippets_language ON snippets(language);
+CREATE INDEX IF NOT EXISTS idx_snippets_updated ON snippets(updated_at DESC);
+CREATE TABLE IF NOT EXISTS git_repos_local (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+  branch TEXT NOT NULL DEFAULT '', ahead INTEGER NOT NULL DEFAULT 0, behind INTEGER NOT NULL DEFAULT 0,
+  changed INTEGER NOT NULL DEFAULT 0, staged INTEGER NOT NULL DEFAULT 0, untracked INTEGER NOT NULL DEFAULT 0,
+  last_commit TEXT NOT NULL DEFAULT '', last_commit_at TEXT NOT NULL DEFAULT '', last_scan TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'ok'
+);
+CREATE TABLE IF NOT EXISTS focus_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, task_title TEXT NOT NULL DEFAULT '',
+  duration INTEGER NOT NULL, actual INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'running',
+  started_at TEXT NOT NULL, ended_at TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS dev_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL UNIQUE, content TEXT NOT NULL DEFAULT '',
+  mood TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '[]', commits TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dev_logs_date ON dev_logs(date);
 """
 
 
@@ -145,4 +174,3 @@ def json_load(value: str, fallback: Any) -> Any:
         return json.loads(value)
     except (TypeError, json.JSONDecodeError):
         return fallback
-

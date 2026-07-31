@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -67,6 +68,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,8 +89,15 @@ import com.personalworkstation.app.core.model.ColumnCreateRequest
 import com.personalworkstation.app.core.model.Task
 import com.personalworkstation.app.core.model.TaskCreateRequest
 import com.personalworkstation.app.core.model.TaskUpdateRequest
+import com.personalworkstation.app.core.model.Snippet
+import com.personalworkstation.app.core.model.SnippetCreateRequest
+import com.personalworkstation.app.core.model.DevLogUpdateRequest
 import com.personalworkstation.app.core.network.ApiClient
 import com.google.zxing.integration.android.IntentIntegrator
+import io.noties.markwon.Markwon
+import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
+import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.ext.tasklist.TaskListPlugin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -106,9 +115,11 @@ private val muted = Color(0xFF888888)
 private val dim = Color(0xFF555555)
 private val errorColor = Color(0xFFFF786D)
 private val cardShape = RoundedCornerShape(16.dp)
-private val tabs = listOf("看板", "笔记", "GitHub", "仪表盘", "设置")
+private val tabs = listOf("看板", "笔记", "片段", "GitHub", "仪表盘", "工具", "日志", "设置")
+private val mobileTabs = listOf("看板", "笔记", "GitHub", "仪表盘", "更多")
+private val mobileIcons = listOf("▦", "▤", "◉", "▥", "•••")
 private data class TaskMove(val taskId: Int, val previousColumnId: Int, val previousColumnName: String)
-private val icons = listOf("▦", "▤", "◉", "▥", "⚙")
+private val icons = listOf("▦", "▤", "</>", "◉", "▥", "⌘", "▣", "⚙")
 private val colors = darkColorScheme(
     primary = green,
     onPrimary = Color.White,
@@ -134,7 +145,7 @@ private fun WorkstationApp() {
     MaterialTheme(colorScheme = colors) {
         val context = LocalContext.current
         val prefs = remember { context.getSharedPreferences("workstation_preferences", Context.MODE_PRIVATE) }
-        var tab by remember { mutableIntStateOf(3) }
+        var tab by remember { mutableIntStateOf(4) }
         var host by remember { mutableStateOf(prefs.getString("host", "192.168.1.100") ?: "192.168.1.100") }
         var port by remember { mutableStateOf(prefs.getString("port", "8080") ?: "8080") }
         var displayName by remember { mutableStateOf(prefs.getString("display_name", "Liu Developer") ?: "Liu Developer") }
@@ -143,6 +154,8 @@ private fun WorkstationApp() {
         var githubSync by remember { mutableStateOf(prefs.getBoolean("github_sync", true)) }
         var focusMode by remember { mutableStateOf(prefs.getBoolean("focus_mode", false)) }
         var profileSyncStatus by remember { mutableStateOf<String?>(null) }
+        var realtimeRevision by remember { mutableIntStateOf(0) }
+        var realtimeStatus by remember { mutableStateOf("disconnected") }
         val appScope = rememberCoroutineScope()
         val client = remember(host, port) {
             ApiClient(normalizeHost(host), port.toIntOrNull()?.coerceIn(1, 65535) ?: 8080)
@@ -167,15 +180,28 @@ private fun WorkstationApp() {
                 profileSyncStatus = "连接后同步失败，保留本机资料"
             }
         }
+        LaunchedEffect(client) {
+            client.listenRealtime(
+                onEvent = { realtimeRevision += 1 },
+                onStatus = { realtimeStatus = it },
+            )
+        }
         Scaffold(
             containerColor = bg,
             bottomBar = {
                 NavigationBar(containerColor = Color(0xFF0A0A0A), tonalElevation = 0.dp) {
-                    tabs.forEachIndexed { index, title ->
+                    mobileTabs.forEachIndexed { index, title ->
+                        val targetTab = when (index) {
+                            0 -> 0
+                            1 -> 1
+                            2 -> 3
+                            3 -> 4
+                            else -> 8
+                        }
                         NavigationBarItem(
-                            selected = tab == index,
-                            onClick = { tab = index },
-                            icon = { Text(icons[index], fontSize = 20.sp) },
+                            selected = if (index == 4) tab >= 5 else tab == targetTab,
+                            onClick = { tab = targetTab },
+                            icon = { Text(mobileIcons[index], fontSize = if (index == 4) 18.sp else 20.sp) },
                             label = { Text(title, fontSize = 11.sp) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = greenLight,
@@ -191,21 +217,28 @@ private fun WorkstationApp() {
         ) { padding ->
             Box(Modifier.fillMaxSize().background(bg).padding(padding)) {
                 when (tab) {
-                    0 -> KanbanScreen(client)
-                    1 -> NotesScreen(client)
-                    2 -> GithubScreen(client)
-                    3 -> DashboardScreen(
+                    0 -> KanbanScreen(client, realtimeRevision)
+                    1 -> NotesScreen(client, realtimeRevision)
+                    2 -> SnippetsScreen(client, realtimeRevision)
+                    3 -> GithubScreen(client, realtimeRevision)
+                    4 -> DashboardScreen(
                         client = client,
+                        realtimeRevision = realtimeRevision,
                         displayName = displayName,
                         githubSync = githubSync,
                         focusMode = focusMode,
-                        onNavigate = { tab = it },
+                        onNavigate = { tab = if (it == 4) 7 else it },
                         onFocusModeChange = {
                             focusMode = it
                             saveBoolean("focus_mode", it)
                         },
                     )
+                    5 -> ToolboxScreen()
+                    6 -> DevLogScreen(client, realtimeRevision)
+                    8 -> MoreScreen(onNavigate = { tab = it })
                     else -> SettingsScreen(
+                        client = client,
+                        realtimeStatus = realtimeStatus,
                         host = host,
                         port = port,
                         onHostChange = {
@@ -281,6 +314,7 @@ private fun PageTitle(title: String, subtitle: String? = null) {
 @Composable
 private fun DashboardScreen(
     client: ApiClient,
+    realtimeRevision: Int = 0,
     displayName: String,
     githubSync: Boolean,
     focusMode: Boolean,
@@ -294,7 +328,7 @@ private fun DashboardScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var showFocus by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
-    LaunchedEffect(client, githubSync) {
+    LaunchedEffect(client, githubSync, realtimeRevision) {
         try {
             summary = client.summary()
             notes = client.notes().take(3)
@@ -602,7 +636,7 @@ private fun StatLine(label: String, value: String) {
     }
 }
 @Composable
-private fun KanbanScreen(client: ApiClient) {
+private fun KanbanScreen(client: ApiClient, realtimeRevision: Int = 0) {
     var boardName by remember { mutableStateOf("Sprint") }
     var boards by remember { mutableStateOf<List<com.personalworkstation.app.core.model.Board>>(emptyList()) }
     var selectedBoardId by remember { mutableIntStateOf(0) }
@@ -680,7 +714,7 @@ fun moveTask(task: Task, target: BoardColumn) {
         showAdd = true
     }
 
-    LaunchedEffect(client) { reload() }
+    LaunchedEffect(client, realtimeRevision) { reload() }
     val total = columns.sumOf { it.tasks.size }
     val visible = columns.filter { selectedColumn == null || it.id == selectedColumn }
 
@@ -904,7 +938,66 @@ private fun TaskCard(task: Task, columns: List<BoardColumn>, client: ApiClient, 
 }
 
 @Composable
-private fun NotesScreen(client: ApiClient) {
+private fun MoreScreen(onNavigate: (Int) -> Unit) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { PageTitle("更多", "工具、日志和连接设置") }
+        item { Panel(Modifier.fillMaxWidth()) { MoreEntry("开发工具", "JSON、Base64、URL 和时间戳处理", "⌘") { onNavigate(5) }; MoreEntry("每日开发日志", "记录进展、问题和下一步计划", "▣") { onNavigate(6) }; MoreEntry("连接设置", "服务器、二维码和个人资料", "⚙") { onNavigate(7) } } }
+    }
+}
+
+@Composable
+private fun MoreEntry(title: String, subtitle: String, icon: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)).background(Color(0x3322C55E)), contentAlignment = Alignment.Center) { Text(icon, color = greenLight, fontSize = 18.sp) }
+        Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.SemiBold); Text(subtitle, color = muted, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp)) }
+        Text("›", color = muted, fontSize = 22.sp)
+    }
+}
+
+@Composable
+private fun ToolboxScreen() {
+    var input by remember { mutableStateOf("") }; var output by remember { mutableStateOf("") }; var mode by remember { mutableStateOf("JSON") }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { item { PageTitle("开发工具", "本地处理敏感数据，不上传内容") }; item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("JSON", "Base64", "URL", "时间戳").forEach { label -> FilterChip(selected = mode == label, onClick = { mode = label }, label = { Text(label) }) } } }; item { Panel(Modifier.fillMaxWidth()) { OutlinedTextField(input, { input = it }, Modifier.fillMaxWidth(), minLines = 8, label = { Text("输入") }, colors = fieldColors()); Spacer(Modifier.height(8.dp)); Button(onClick = { output = runCatching { when (mode) { "JSON" -> kotlinx.serialization.json.Json { prettyPrint = true }.parseToJsonElement(input).toString(); "Base64" -> android.util.Base64.encodeToString(input.toByteArray(), android.util.Base64.NO_WRAP); "URL" -> java.net.URLEncoder.encode(input, "UTF-8"); else -> java.time.Instant.ofEpochSecond(input.toLong()).toString() } }.getOrElse { "处理失败：${it.message}" } }, colors = ButtonDefaults.buttonColors(containerColor = green)) { Text("处理") }; Spacer(Modifier.height(8.dp)); OutlinedTextField(output, {}, Modifier.fillMaxWidth(), minLines = 8, readOnly = true, label = { Text("输出") }, colors = fieldColors()) } } }
+}
+
+@Composable
+private fun DevLogScreen(client: ApiClient, realtimeRevision: Int = 0) {
+    var log by remember { mutableStateOf<com.personalworkstation.app.core.model.DevLog?>(null) }
+    var text by remember { mutableStateOf("") }
+    var mood by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    LaunchedEffect(client, realtimeRevision) { runCatching { client.todayLog() }.onSuccess { log = it; text = it.content; mood = it.mood } }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { PageTitle("每日开发日志", "记录今天的进展、问题和解决思路") }
+        item { Panel(Modifier.fillMaxWidth()) { Text(log?.date ?: "今天", color = greenLight, fontWeight = FontWeight.Bold); Spacer(Modifier.height(10.dp)); OutlinedTextField(mood, { mood = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("心情") }, colors = fieldColors()); Spacer(Modifier.height(8.dp)); OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth(), minLines = 12, label = { Text("日志内容（支持 Markdown）") }, colors = fieldColors()); Spacer(Modifier.height(10.dp)); Button(onClick = { log?.let { current -> scope.launch { client.updateLog(current.id, DevLogUpdateRequest(text, mood)); Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show() } } }, colors = ButtonDefaults.buttonColors(containerColor = green)) { Text("保存今日") } } }
+    }
+}
+
+@Composable
+private fun SnippetsScreen(client: ApiClient, realtimeRevision: Int = 0) {
+    var items by remember { mutableStateOf<List<Snippet>>(emptyList()) }
+    var query by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var language by remember { mutableStateOf("plain") }
+    var showEditor by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    LaunchedEffect(client, realtimeRevision, query) { runCatching { items = client.snippets(query) } }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { PageTitle("代码片段", "搜索、复制和复用常用代码") }
+        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { SearchField(query, { query = it }, "搜索标题或代码"); Button(onClick = { showEditor = true }, colors = ButtonDefaults.buttonColors(containerColor = green)) { Text("新建") } } }
+        if (items.isEmpty()) item { EmptyText("还没有匹配的代码片段") }
+        items(items, key = { it.id }) { item ->
+            Panel(Modifier.fillMaxWidth()) { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(item.title, fontWeight = FontWeight.Bold); Text(item.language, fontSize = 11.sp, color = greenLight); Text(item.code.take(500), fontSize = 11.sp, color = muted, maxLines = 6, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp)) }; TextButton(onClick = { val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager; clipboard.setPrimaryClip(android.content.ClipData.newPlainText("snippet", item.code)); Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show() }) { Text("复制", color = greenLight) } } }
+        }
+    }
+    if (showEditor) AlertDialog(onDismissRequest = { showEditor = false }, title = { Text("新建代码片段") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(title, { title = it }, label = { Text("标题") }, singleLine = true, colors = fieldColors()); OutlinedTextField(language, { language = it }, label = { Text("语言") }, singleLine = true, colors = fieldColors()); OutlinedTextField(code, { code = it }, label = { Text("代码") }, minLines = 6, colors = fieldColors()) } }, confirmButton = { TextButton(onClick = { if (title.isNotBlank() && code.isNotBlank()) scope.launch { client.createSnippet(SnippetCreateRequest(title, code, language)); title=""; code=""; showEditor=false; items=client.snippets(query) } }) { Text("保存", color = greenLight) } }, dismissButton = { TextButton(onClick = { showEditor = false }) { Text("取消") } })
+}
+
+@Composable
+private fun NotesScreen(client: ApiClient, realtimeRevision: Int = 0) {
     var notes by remember { mutableStateOf<List<Note>>(emptyList()) }
     var query by remember { mutableStateOf("") }
     var selectedTag by remember { mutableStateOf<String?>(null) }
@@ -917,6 +1010,7 @@ private fun NotesScreen(client: ApiClient) {
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
     var tags by remember { mutableStateOf("") }
+    var noteMode by remember { mutableStateOf("edit") }
     val scope = rememberCoroutineScope()
 
     fun reload() {
@@ -933,7 +1027,7 @@ private fun NotesScreen(client: ApiClient) {
         }
     }
 
-    LaunchedEffect(client, query) { reload() }
+    LaunchedEffect(client, query, realtimeRevision) { reload() }
     val availableTags = notes.flatMap { it.tags }.distinct().sorted()
     val visibleNotes = notes.filter { selectedTag == null || selectedTag in it.tags }
 
@@ -946,7 +1040,7 @@ private fun NotesScreen(client: ApiClient) {
                 PageTitle("笔记", "本地知识与想法")
                 Spacer(Modifier.weight(1f))
                 Button(
-                    onClick = { title = ""; content = ""; tags = ""; showAdd = true },
+                    onClick = { title = ""; content = ""; tags = ""; noteMode = "edit"; showAdd = true },
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = green),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
@@ -990,6 +1084,7 @@ private fun NotesScreen(client: ApiClient) {
                         title = note.title
                         content = note.content
                         tags = note.tags.joinToString(", ")
+                        noteMode = "edit"
                         showAdd = true
                     }) {
                         scope.launch {
@@ -1009,7 +1104,19 @@ private fun NotesScreen(client: ApiClient) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("标题") }, colors = fieldColors())
-                    OutlinedTextField(content, { content = it }, Modifier.fillMaxWidth(), minLines = 5, label = { Text("内容") }, colors = fieldColors())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("edit" to "编辑", "preview" to "预览", "split" to "分栏").forEach { (mode, label) ->
+                            FilterChip(selected = noteMode == mode, onClick = { noteMode = mode }, label = { Text(label) })
+                        }
+                    }
+                    when (noteMode) {
+                        "preview" -> MarkdownPreview(content, Modifier.fillMaxWidth().heightIn(min = 140.dp, max = 280.dp))
+                        "split" -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(content, { content = it }, Modifier.fillMaxWidth(), minLines = 4, label = { Text("Markdown 原文") }, colors = fieldColors())
+                            MarkdownPreview(content, Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 220.dp))
+                        }
+                        else -> OutlinedTextField(content, { content = it }, Modifier.fillMaxWidth(), minLines = 5, label = { Text("Markdown 内容") }, colors = fieldColors())
+                    }
                     OutlinedTextField(tags, { tags = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("标签，用逗号分隔") }, colors = fieldColors())
                 }
             },
@@ -1041,7 +1148,8 @@ private fun NoteCard(note: Note, onEdit: () -> Unit, onDelete: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text(note.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(5.dp))
-                Text(note.content.ifBlank { "暂无内容" }, fontSize = 13.sp, color = Color(0xFFD4D4D4), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                if (note.content.isBlank()) Text("暂无内容", fontSize = 13.sp, color = Color(0xFFD4D4D4))
+                else MarkdownPreview(note.content, Modifier.fillMaxWidth().heightIn(max = 120.dp))
                 Spacer(Modifier.height(8.dp))
                 Text(note.tags.joinToString(" · ").ifBlank { relativeDate(note.updated_at) }, fontSize = 11.sp, color = greenLight)
             }
@@ -1053,7 +1161,7 @@ private fun NoteCard(note: Note, onEdit: () -> Unit, onDelete: () -> Unit) {
     }
 }
 @Composable
-private fun GithubScreen(client: ApiClient) {
+private fun GithubScreen(client: ApiClient, realtimeRevision: Int = 0) {
     var repos by remember { mutableStateOf<List<GithubRepo>>(emptyList()) }
     var activity by remember { mutableStateOf<List<GithubActivity>>(emptyList()) }
     var heatmap by remember { mutableStateOf<GithubHeatmap?>(null) }
@@ -1099,7 +1207,7 @@ private fun GithubScreen(client: ApiClient) {
         }
     }
 
-    LaunchedEffect(client) { reload() }
+    LaunchedEffect(client, realtimeRevision) { reload() }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -1211,6 +1319,8 @@ private fun RepoRow(repo: GithubRepo) {
 
 @Composable
 private fun SettingsScreen(
+    client: ApiClient,
+    realtimeStatus: String,
     host: String,
     port: String,
     onHostChange: (String) -> Unit,
@@ -1232,9 +1342,38 @@ private fun SettingsScreen(
     var localDisplayName by remember(displayName) { mutableStateOf(displayName) }
     var localGithubUsername by remember(githubUsername) { mutableStateOf(githubUsername) }
     var profileStatus by remember { mutableStateOf<String?>(null) }
+    var backupStatus by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val activity = context as? Activity
+    val backupExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { target ->
+        if (target != null) {
+            scope.launch {
+                try {
+                    val bytes = client.exportJsonBackup()
+                    context.contentResolver.openOutputStream(target)?.use { it.write(bytes) }
+                        ?: throw IllegalStateException("无法写入所选文件")
+                    backupStatus = "JSON 备份已导出"
+                } catch (e: Exception) {
+                    backupStatus = "导出失败：" + friendlyError(e)
+                }
+            }
+        }
+    }
+    val backupImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { source ->
+        if (source != null) {
+            scope.launch {
+                try {
+                    val bytes = context.contentResolver.openInputStream(source)?.use { it.readBytes() }
+                        ?: throw IllegalStateException("无法读取所选文件")
+                    val result = client.importJsonBackup(source.lastPathSegment ?: "workstation-backup.json", bytes)
+                    backupStatus = "已合并恢复，安全备份：" + result.safety_backup
+                } catch (e: Exception) {
+                    backupStatus = "恢复失败：" + friendlyError(e)
+                }
+            }
+        }
+    }
     val scanner = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val scan = IntentIntegrator.parseActivityResult(result.resultCode, result.data)
         val value = scan?.contents
@@ -1269,6 +1408,15 @@ private fun SettingsScreen(
                             if (status == "连接成功") "在线 · 刚刚" else "等待连接测试",
                             fontSize = 12.sp,
                             color = if (status == "连接成功") greenLight else muted,
+                        )
+                        Text(
+                            when (realtimeStatus) {
+                                "connected" -> "实时同步已连接"
+                                "reconnecting" -> "实时同步重连中"
+                                else -> "实时同步未连接"
+                            },
+                            fontSize = 11.sp,
+                            color = if (realtimeStatus == "connected") greenLight else muted,
                         )
                     }
                 }
@@ -1340,6 +1488,28 @@ private fun SettingsScreen(
         }
         item {
             Panel(Modifier.fillMaxWidth()) {
+                SectionTitle("数据管理")
+                Text("备份数据保存在你选择的位置；导入会以合并方式恢复，并由电脑端自动创建安全备份。", fontSize = 11.sp, color = muted)
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { backupExport.launch("personal-workstation-backup.json") },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = green),
+                    ) { Text("导出 JSON", fontSize = 12.sp) }
+                    TextButton(
+                        onClick = { backupImport.launch(arrayOf("application/json", "text/json")) },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("导入并合并", color = greenLight, fontSize = 12.sp) }
+                }
+                if (backupStatus != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(backupStatus ?: "", fontSize = 11.sp, color = if (backupStatus?.startsWith("恢复失败") == true || backupStatus?.startsWith("导出失败") == true) errorColor else greenLight)
+                }
+            }
+        }
+        item {
+            Panel(Modifier.fillMaxWidth()) {
                 SectionTitle("偏好设置")
                 SettingToggle("推送通知", "接收任务更新和 GitHub 动态", notifications, onNotificationsChange)
                 SettingToggle("GitHub 实时同步", "仪表盘自动拉取最新动态", githubSync, onGithubSyncChange)
@@ -1390,6 +1560,29 @@ private fun SettingsScreen(
             }
         }
     }
+}
+
+@Composable
+private fun MarkdownPreview(content: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val markwon = remember(context) {
+        Markwon.builder(context)
+            .usePlugin(StrikethroughPlugin.create())
+            .usePlugin(TablePlugin.create(context))
+            .usePlugin(TaskListPlugin.create(context))
+            .build()
+    }
+    AndroidView(
+        modifier = modifier,
+        factory = { ctx ->
+            android.widget.TextView(ctx).apply {
+                setTextColor(android.graphics.Color.rgb(212, 212, 212))
+                textSize = 13f
+                setLineSpacing(0f, 1.15f)
+            }
+        },
+        update = { view -> markwon.setMarkdown(view, content) },
+    )
 }
 @Composable
 private fun SettingToggle(

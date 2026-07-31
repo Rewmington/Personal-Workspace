@@ -131,4 +131,47 @@ class GithubActivity(BaseModel):
     payload: dict[str, Any]
     created_at: str
 
+class SnippetCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    code: str = Field(min_length=1, max_length=5000)
+    language: str = Field(default="plain", max_length=40)
+    tags: list[str] = []
+    description: str = Field(default="", max_length=1000)
+
+class SnippetUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    code: str | None = Field(default=None, max_length=5000)
+    language: str | None = Field(default=None, max_length=40)
+    tags: list[str] | None = None
+    description: str | None = Field(default=None, max_length=1000)
+
+class Snippet(SnippetCreate):
+    id: int
+    created_at: str
+    updated_at: str
+
+class FocusStart(BaseModel):
+    task_id: int | None = None
+    task_title: str = ""
+    duration: int = Field(default=1500, ge=60, le=86400)
+
+class FocusStop(BaseModel):
+    actual: int | None = Field(default=None, ge=0)
+
+class DevLogUpdate(BaseModel):
+    content: str = ""
+    mood: str = ""
+    tags: list[str] = []
+    commits: list[str] = []
+
+class DevLog(BaseModel):
+    id: int
+    date: str
+    content: str
+    mood: str
+    tags: list[str]
+    commits: list[str]
+    created_at: str
+    updated_at: str
+
 

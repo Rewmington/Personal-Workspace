@@ -11,12 +11,17 @@ import com.personalworkstation.app.core.model.GithubProfile
 import com.personalworkstation.app.core.model.GithubSettingsStatus
 import com.personalworkstation.app.core.model.Profile
 import com.personalworkstation.app.core.model.ProfileUpdateRequest
+import com.personalworkstation.app.core.model.BackupRestoreResponse
 import com.personalworkstation.app.core.model.HealthResponse
 import com.personalworkstation.app.core.model.Note
 import com.personalworkstation.app.core.model.NoteCreateRequest
 import com.personalworkstation.app.core.model.NoteUpdateRequest
 import com.personalworkstation.app.core.model.BoardCreateRequest
 import com.personalworkstation.app.core.model.ColumnCreateRequest
+import com.personalworkstation.app.core.model.Snippet
+import com.personalworkstation.app.core.model.SnippetCreateRequest
+import com.personalworkstation.app.core.model.DevLog
+import com.personalworkstation.app.core.model.DevLogUpdateRequest
 import com.personalworkstation.app.core.model.Task
 import com.personalworkstation.app.core.model.TaskCreateRequest
 import com.personalworkstation.app.core.model.TaskUpdateRequest
@@ -24,20 +29,36 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.delete
+import io.ktor.client.request.forms.MultiPartFormDataContent
+import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import io.ktor.websocket.Frame
+import io.ktor.websocket.close
+import io.ktor.websocket.readText
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlin.math.min
+import kotlin.random.Random
 
 class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
     private val baseUrl = "http://$host:$port"
     private val client = HttpClient(Android) {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        install(WebSockets)
     }
 
     suspend fun health(): HealthResponse = client.get("$baseUrl/api/health").body()
@@ -95,6 +116,19 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
             setBody(request)
         }.body()
 
+    suspend fun exportJsonBackup(): ByteArray =
+        client.post("$baseUrl/api/backup/export?format=json").body()
+
+    suspend fun importJsonBackup(filename: String, bytes: ByteArray): BackupRestoreResponse =
+        client.post("$baseUrl/api/backup/import?mode=merge") {
+            setBody(MultiPartFormDataContent(formData {
+                append("file", bytes, Headers.build {
+                    append(HttpHeaders.ContentDisposition, "form-data; name=\"file\"; filename=\"$filename\"")
+                    append(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                })
+            }))
+        }.body()
+
     suspend fun createTask(request: TaskCreateRequest): Task =
         client.post("$baseUrl/api/tasks") {
             contentType(ContentType.Application.Json)
@@ -111,6 +145,12 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
         client.delete("$baseUrl/api/tasks/$taskId")
     }
 
+    suspend fun snippets(query: String? = null): List<Snippet> = client.get("$baseUrl/api/snippets" + (query?.takeIf { it.isNotBlank() }?.let { "?q=" + java.net.URLEncoder.encode(it, "UTF-8") } ?: "")).body()
+    suspend fun createSnippet(request: SnippetCreateRequest): Snippet = client.post("$baseUrl/api/snippets") { contentType(ContentType.Application.Json); setBody(request) }.body()
+    suspend fun deleteSnippet(id: Int) { client.delete("$baseUrl/api/snippets/$id") }
+    suspend fun todayLog(): DevLog = client.get("$baseUrl/api/logs/today").body()
+    suspend fun updateLog(id: Int, request: DevLogUpdateRequest): DevLog = client.put("$baseUrl/api/logs/$id") { contentType(ContentType.Application.Json); setBody(request) }.body()
+
     suspend fun createBoard(request: BoardCreateRequest): Board =
         client.post("$baseUrl/api/boards") {
             contentType(ContentType.Application.Json)
@@ -124,4 +164,36 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
         }.body()
 
     fun close() = client.close()
+
+    suspend fun listenRealtime(onEvent: suspend () -> Unit, onStatus: (String) -> Unit) {
+        val websocketUrl = baseUrl.replaceFirst("http://", "ws://").replaceFirst("https://", "wss://") + "/ws"
+        var retryCount = 0
+        var lastSeq = 0L
+        while (currentCoroutineContext().isActive) {
+            try {
+                onStatus("reconnecting")
+                client.webSocket(websocketUrl) {
+                    onStatus("connected")
+                    send(Frame.Text("{\"type\":\"sync_request\",\"last_seq\":$lastSeq}"))
+                    for (frame in incoming) {
+                        if (frame is Frame.Text) {
+                            val text = frame.readText()
+                            val json = runCatching { Json.parseToJsonElement(text).jsonObject }.getOrNull() ?: continue
+                            json["seq"]?.toString()?.toLongOrNull()?.let { lastSeq = maxOf(lastSeq, it) }
+                            when (json["type"]?.toString()?.trim('"')) {
+                                "ping" -> send(Frame.Text("{\"type\":\"pong\"}"))
+                                "sync_state", "task_created", "task_updated", "task_deleted", "note_created", "note_updated", "note_deleted", "snippet_created", "snippet_updated", "snippet_deleted", "board_created", "column_created" -> onEvent()
+                            }
+                        }
+                    }
+                }
+                retryCount = 0
+            } catch (_: Exception) {
+                onStatus("reconnecting")
+            }
+            val delayMs = (min(30_000L, 1_000L * (1L shl retryCount.coerceAtMost(5))) * (0.75 + Random.nextDouble() * 0.5)).toLong()
+            retryCount += 1
+            delay(delayMs)
+        }
+    }
 }

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..database import connection, json_load, row_dict, utc_now
 from ..schemas import Note, NoteCreate, NoteUpdate
+from ..websocket.manager import manager
 
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
@@ -37,7 +38,7 @@ def list_notes(search: str | None = Query(default=None), tag: str | None = Query
 
 
 @router.post("", response_model=Note, status_code=201)
-def create_note(payload: NoteCreate) -> Note:
+async def create_note(payload: NoteCreate) -> Note:
     now = utc_now()
     with connection() as conn:
         cursor = conn.execute(
@@ -45,7 +46,9 @@ def create_note(payload: NoteCreate) -> Note:
             (payload.title, payload.content, json.dumps(payload.tags, ensure_ascii=False), now, now),
         )
         row = conn.execute("SELECT * FROM notes WHERE id = ?", (cursor.lastrowid,)).fetchone()
-    return _note(row)
+    result = _note(row)
+    await manager.broadcast({"type": "note_created", "data": result.model_dump(mode="json")})
+    return result
 
 
 @router.get("/{note_id}", response_model=Note)
@@ -58,7 +61,7 @@ def get_note(note_id: int) -> Note:
 
 
 @router.put("/{note_id}", response_model=Note)
-def update_note(note_id: int, payload: NoteUpdate) -> Note:
+async def update_note(note_id: int, payload: NoteUpdate) -> Note:
     changes = payload.model_dump(exclude_unset=True)
     with connection() as conn:
         if conn.execute("SELECT 1 FROM notes WHERE id = ?", (note_id,)).fetchone() is None:
@@ -75,13 +78,15 @@ def update_note(note_id: int, payload: NoteUpdate) -> Note:
             values.extend([utc_now(), note_id])
             conn.execute(f"UPDATE notes SET {', '.join(fields)} WHERE id = ?", values)
         row = conn.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
-    return _note(row)
+    result = _note(row)
+    await manager.broadcast({"type": "note_updated", "data": result.model_dump(mode="json")})
+    return result
 
 
 @router.delete("/{note_id}", status_code=204)
-def delete_note(note_id: int) -> None:
+async def delete_note(note_id: int) -> None:
     with connection() as conn:
         cursor = conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
     if cursor.rowcount == 0:
         raise HTTPException(status_code=404, detail="笔记不存在")
-
+    await manager.broadcast({"type": "note_deleted", "data": {"id": note_id}})

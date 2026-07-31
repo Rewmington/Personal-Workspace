@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..database import connection, row_dict, utc_now
 from ..schemas import Board, BoardCreate, Column, ColumnCreate, Task, TaskCreate, TaskUpdate
+from ..websocket.manager import manager
 
 
 router = APIRouter(prefix="/api", tags=["tasks"])
@@ -22,7 +23,7 @@ def list_boards() -> list[Board]:
 
 
 @router.post("/boards", response_model=Board, status_code=201)
-def create_board(payload: BoardCreate) -> Board:
+async def create_board(payload: BoardCreate) -> Board:
     with connection() as conn:
         position = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM boards").fetchone()[0]
         cursor = conn.execute(
@@ -30,7 +31,9 @@ def create_board(payload: BoardCreate) -> Board:
             (payload.name, position, utc_now()),
         )
         row = conn.execute("SELECT * FROM boards WHERE id = ?", (cursor.lastrowid,)).fetchone()
-    return Board.model_validate(row_dict(row))
+    result = Board.model_validate(row_dict(row))
+    await manager.broadcast({"type": "board_created", "data": result.model_dump(mode="json")})
+    return result
 
 
 @router.get("/boards/{board_id}/tasks", response_model=list[Column])
@@ -51,7 +54,7 @@ def get_board_tasks(board_id: int) -> list[Column]:
 
 
 @router.post("/boards/{board_id}/columns", response_model=Column, status_code=201)
-def create_column(board_id: int, payload: ColumnCreate) -> Column:
+async def create_column(board_id: int, payload: ColumnCreate) -> Column:
     with connection() as conn:
         if conn.execute("SELECT 1 FROM boards WHERE id = ?", (board_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="看板不存在")
@@ -65,7 +68,9 @@ def create_column(board_id: int, payload: ColumnCreate) -> Column:
         row = conn.execute("SELECT * FROM columns WHERE id = ?", (cursor.lastrowid,)).fetchone()
     item = row_dict(row)
     item["tasks"] = []
-    return Column.model_validate(item)
+    result = Column.model_validate(item)
+    await manager.broadcast({"type": "column_created", "data": result.model_dump(mode="json")})
+    return result
 
 
 @router.get("/tasks", response_model=list[Task])
@@ -79,7 +84,7 @@ def list_tasks(column_id: int | None = Query(default=None)) -> list[Task]:
 
 
 @router.post("/tasks", response_model=Task, status_code=201)
-def create_task(payload: TaskCreate) -> Task:
+async def create_task(payload: TaskCreate) -> Task:
     now = utc_now()
     with connection() as conn:
         if conn.execute("SELECT 1 FROM columns WHERE id = ?", (payload.column_id,)).fetchone() is None:
@@ -91,7 +96,9 @@ def create_task(payload: TaskCreate) -> Task:
             (payload.column_id, payload.title, payload.description, payload.priority, payload.due_date.isoformat() if payload.due_date else None, position, now, now),
         )
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (cursor.lastrowid,)).fetchone()
-    return _task(row)
+    result = _task(row)
+    await manager.broadcast({"type": "task_created", "data": result.model_dump(mode="json")})
+    return result
 
 
 @router.get("/tasks/{task_id}", response_model=Task)
@@ -104,7 +111,7 @@ def get_task(task_id: int) -> Task:
 
 
 @router.put("/tasks/{task_id}", response_model=Task)
-def update_task(task_id: int, payload: TaskUpdate) -> Task:
+async def update_task(task_id: int, payload: TaskUpdate) -> Task:
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         return get_task(task_id)
@@ -125,13 +132,15 @@ def update_task(task_id: int, payload: TaskUpdate) -> Task:
         values.extend([utc_now(), task_id])
         conn.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?", values)
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    return _task(row)
+    result = _task(row)
+    await manager.broadcast({"type": "task_updated", "data": result.model_dump(mode="json")})
+    return result
 
 
 @router.delete("/tasks/{task_id}", status_code=204)
-def delete_task(task_id: int) -> None:
+async def delete_task(task_id: int) -> None:
     with connection() as conn:
         cursor = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     if cursor.rowcount == 0:
         raise HTTPException(status_code=404, detail="任务不存在")
-
+    await manager.broadcast({"type": "task_deleted", "data": {"id": task_id}})
