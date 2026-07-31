@@ -274,14 +274,9 @@ V3 全部 14 项功能已完成：
 
 ## 已知的待补项
 
-以下内容设计文档中有提及，当前版本未实现：
-
-| 待补项 | 优先级 | 说明 |
+| 待补项 | 优先级 | 状态 |
 |--------|--------|------|
-| 数据库迁移工具 | 低 | 当前用 `CREATE TABLE IF NOT EXISTS`，后续表结构变更时引入 Alembic |
-| Android 架构拆分 | 中 | `MainActivity.kt` 120KB 单文件，后续按 features/ 模块拆分 |
-| Android 本地缓存 | 中 | 添加 DataStore 缓存层，减少网络请求 |
-| Android 依赖注入 | 低 | 引入 Hilt/Koin 解耦 |
-| GitHub Token 加密 | 中 | 当前明文存 JSON，需用 Fernet 加密 |
-| 后台定时刷新 | 低 | GitHub 数据当前手动刷新，后续加后台任务 |
-| API 请求工具 | 低 | 开发者工具集中的 HTTP 请求调试面板 |
+| 数据库迁移工具 | 低 | 暂缓 — 当前表结构稳定 |
+| GitHub Token 加密 | ~~中~~ | ✅ 已完成 — Fernet 加密，密钥存 `data/.fernet_key` |
+| 后台定时刷新 | ~~低~~ | ✅ 已完成 — 每 30 分钟（`GITHUB_REFRESH_MINUTES` 可调）自动拉取 |
+| API 请求工具 | 低 | 暂缓 — 锦上添花功能 |

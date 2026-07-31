@@ -26,3 +26,4 @@ desktop/test-data/*.db
 **/.gradle-user-home/
 desktop-dist/
 rebuild-all.bat
+memory/

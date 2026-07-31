@@ -1,6 +1,8 @@
 ﻿from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
+import logging
 import os
 from pathlib import Path
 
@@ -13,12 +15,34 @@ from .api import backup, connect, dashboard, github, notes, profile, tasks, snip
 from .config import settings
 from .database import init_db
 from .mdns_broadcaster import get_mdns_broadcaster
+from .services.github import refresh_github
 from .udp_discovery import get_udp_discovery
 from .websocket.handler import websocket_endpoint
+
+_logger = logging.getLogger("lifespan")
+_github_refresh_task: asyncio.Task[None] | None = None
+
+# ── GitHub 后台定时刷新 ──
+
+async def _github_refresh_loop() -> None:
+    """每隔 GITHUB_REFRESH_MINUTES（默认 30 分钟）拉取一次 GitHub 数据。"""
+    await asyncio.sleep(30)  # 启动后先等 30 秒，让服务完全就绪
+    interval = int(os.getenv("GITHUB_REFRESH_MINUTES", "30"))
+    logger = logging.getLogger("github.background")
+    while True:
+        try:
+            if settings.github_token and settings.github_username:
+                logger.info("开始后台刷新 GitHub 数据...")
+                await refresh_github()
+                logger.info("后台 GitHub 刷新完成")
+        except Exception:
+            logger.warning("后台 GitHub 刷新失败", exc_info=True)
+        await asyncio.sleep(interval * 60)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    global _github_refresh_task
     init_db()
     # 启动 mDNS 广播
     try:
@@ -28,7 +52,6 @@ async def lifespan(_: FastAPI):
             device_name="个人工作台",
         )
     except Exception:
-        import logging
         logging.getLogger("mdns").warning("mDNS 广播启动失败，局域网自动发现将不可用", exc_info=True)
     # 启动 UDP 广播发现（NsdManager 不可用时的回退）
     get_udp_discovery().start(
@@ -36,18 +59,25 @@ async def lifespan(_: FastAPI):
         port=settings.port,
         device_name=settings.display_name or "个人工作台",
     )
+    # 启动 GitHub 后台定时刷新
+    _github_refresh_task = asyncio.create_task(_github_refresh_loop())
     yield
+    # 停止 GitHub 后台刷新
+    if _github_refresh_task:
+        _github_refresh_task.cancel()
+        try:
+            await _github_refresh_task
+        except asyncio.CancelledError:
+            pass
     # 停止 mDNS 广播
     try:
         get_mdns_broadcaster().unregister()
     except Exception:
-        import logging
         logging.getLogger("mdns").debug("mDNS 广播停止时出错", exc_info=True)
     # 停止 UDP 发现
     try:
         get_udp_discovery().stop()
     except Exception:
-        import logging
         logging.getLogger("udp_discovery").debug("UDP 发现停止时出错", exc_info=True)
 
 

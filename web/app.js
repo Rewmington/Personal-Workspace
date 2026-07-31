@@ -172,7 +172,11 @@ async function renderDashboard() {
     api("/api/github/activity?limit=6"),
     api("/api/github/repos"),
   ]);
-  const cells = heatmap.items.map((item) => `<span class="heat-cell ${item.count >= 5 ? "l4" : item.count >= 3 ? "l3" : item.count === 2 ? "l2" : item.count === 1 ? "l1" : ""}" title="${item.date}：${item.count} 次"></span>`).join("");
+  const cells = heatmap.items.map((item) => {
+    const level = item.count >= 5 ? "l4" : item.count >= 3 ? "l3" : item.count === 2 ? "l2" : item.count === 1 ? "l1" : "";
+    const commitsJson = escapeHtml(JSON.stringify(item.commits || []));
+    return `<span class="heat-cell ${level}" data-date="${item.date}" data-count="${item.count}" data-commits="${commitsJson}"></span>`;
+  }).join("");
   const activities = activity.length ? activity.map((item) => `<div class="activity"><div class="mini-avatar">${escapeHtml((item.actor || "G").slice(0, 1).toUpperCase())}</div><div><strong>${escapeHtml(item.actor || "GitHub")}</strong><p>${escapeHtml(eventLabel(item.type))}</p><time>${formatDate(item.created_at)}</time></div></div>`).join("") : '<div class="empty">还没有 GitHub 活动，配置账号后刷新即可。</div>';
   const completion = Math.min(100, Number(summary.task_completion_rate || 0));
   setNavBadge("kanban-badge", summary.tasks_total);
@@ -185,6 +189,7 @@ async function renderDashboard() {
     <div class="dashboard-grid"><div class="panel"><div class="panel-head"><h3>活跃仓库</h3><span>${repos.length} 个</span></div><div class="repo-grid">${repoCards || '<div class="empty">暂无仓库数据</div>'}</div></div><div class="panel"><div class="panel-head"><h3>工作分布</h3><span>本地概览</span></div><div class="bars"><div class="bar-row"><span>任务</span><i style="width:${Math.max(12, Math.min(100, Number(summary.tasks_total) * 3))}%"></i><b>${summary.tasks_total}</b></div><div class="bar-row"><span>笔记</span><i style="width:${Math.max(12, Math.min(100, Number(summary.notes_total) * 4))}%"></i><b>${summary.notes_total}</b></div><div class="bar-row"><span>提交</span><i style="width:${Math.max(12, Math.min(100, Number(summary.github_commits_30d) * 2))}%"></i><b>${summary.github_commits_30d}</b></div></div></div></div>
     <div class="panel"><div class="panel-head"><h3>快捷操作</h3><span>常用入口</span></div><div class="quick-grid"><button class="quick" data-quick="task">＋ 新建任务</button><button class="quick" data-quick="note">▤ 新建笔记</button><button class="quick" data-view="github">◉ 查看 GitHub</button><button class="quick" data-view="settings">⚙ 连接设置</button></div></div>`;
   bindViewButtons();
+  bindHeatmap();
   document.querySelectorAll("[data-quick]").forEach((button) => button.addEventListener("click", () => openQuick(button.dataset.quick)));
 }
 function eventLabel(type) {
@@ -827,7 +832,111 @@ async function loadGithubProfile() {
     // GitHub profile is optional; the local fallback remains visible.
   }
 }
+// ── Heatmap tooltip & commit detail popup ──
+
+let heatTooltip = null;
+
+function initHeatmapTooltip() {
+  if (heatTooltip) return;
+  heatTooltip = document.createElement("div");
+  heatTooltip.id = "heat-tooltip";
+  heatTooltip.className = "heat-tooltip";
+  heatTooltip.hidden = true;
+  document.body.appendChild(heatTooltip);
+}
+
+function bindHeatmap() {
+  initHeatmapTooltip();
+  document.querySelectorAll(".heat-cell").forEach((cell) => {
+    cell.addEventListener("mouseenter", (e) => {
+      const date = cell.dataset.date;
+      const count = Number(cell.dataset.count) || 0;
+      if (!date) return;
+      const d = new Date(date + "T00:00:00");
+      const dateStr = d.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" });
+      let html = `<div class="heat-tip-date">${dateStr}</div>`;
+      if (count === 0) {
+        html += '<div class="heat-tip-count">没有提交</div>';
+      } else {
+        html += `<div class="heat-tip-count">${count} 次提交</div>`;
+      }
+      heatTooltip.innerHTML = html;
+      heatTooltip.hidden = false;
+      positionHeatTooltip(heatTooltip, e);
+    });
+    cell.addEventListener("mousemove", (e) => positionHeatTooltip(heatTooltip, e));
+    cell.addEventListener("mouseleave", () => { heatTooltip.hidden = true; });
+    cell.addEventListener("click", () => {
+      heatTooltip.hidden = true;
+      const date = cell.dataset.date;
+      const count = Number(cell.dataset.count) || 0;
+      let commits = [];
+      try { commits = JSON.parse(cell.dataset.commits || "[]"); } catch (_) { /* ignore */ }
+      showCommitPopup(date, count, commits);
+    });
+  });
+}
+
+function positionHeatTooltip(el, e) {
+  const tw = el.offsetWidth || 120;
+  const th = el.offsetHeight || 40;
+  let x = e.clientX + 12;
+  let y = e.clientY - th - 10;
+  if (x + tw > window.innerWidth) x = e.clientX - tw - 12;
+  if (y < 6) y = e.clientY + 20;
+  el.style.left = x + "px";
+  el.style.top = y + "px";
+}
+
+function showCommitPopup(date, count, commits) {
+  const existing = document.getElementById("heat-popup");
+  if (existing) existing.remove();
+
+  const d = new Date(date + "T00:00:00");
+  const dateStr = d.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" });
+
+  let commitsHtml = commits.map((c) =>
+    `<div class="commit-item">
+      <span class="commit-repo">${escapeHtml(c.repo_name || "unknown")}</span>
+      <span class="commit-sha">${escapeHtml(c.sha || "")}</span>
+      <span class="commit-msg">${escapeHtml(c.message || "(无消息)")}</span>
+    </div>`
+  ).join("");
+
+  if (!commitsHtml) {
+    commitsHtml = '<div class="commit-empty">当天没有提交记录</div>';
+  }
+
+  const popup = document.createElement("div");
+  popup.id = "heat-popup";
+  popup.className = "heat-popup-overlay";
+  popup.innerHTML =
+    `<div class="heat-popup">
+      <div class="heat-popup-head">
+        <h3>${dateStr}</h3>
+        <span class="heat-popup-count">${count} 次提交</span>
+        <button class="heat-popup-close icon-button" aria-label="关闭">×</button>
+      </div>
+      <div class="heat-popup-body">${commitsHtml}</div>
+    </div>`;
+  document.body.appendChild(popup);
+
+  popup.addEventListener("click", (e) => {
+    if (e.target === popup || e.target.classList.contains("heat-popup-close")) {
+      popup.remove();
+    }
+  });
+
+  const onKey = (ev) => {
+    if (ev.key === "Escape") { popup.remove(); document.removeEventListener("keydown", onKey); }
+  };
+  document.addEventListener("keydown", onKey);
+}
+
+// ── Boot ──
+
 async function boot() {
+  initHeatmapTooltip();
   try { await api("/api/health"); setServerStatus(true, "服务已连接"); } catch (_) { setServerStatus(false, "服务未连接"); }
   startRealtime();
   loadGithubProfile();
