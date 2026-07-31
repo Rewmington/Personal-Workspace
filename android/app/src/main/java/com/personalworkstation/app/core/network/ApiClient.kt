@@ -7,9 +7,16 @@ import com.personalworkstation.app.core.model.GithubActivity
 import com.personalworkstation.app.core.model.GithubHeatmap
 import com.personalworkstation.app.core.model.GithubRefreshResponse
 import com.personalworkstation.app.core.model.GithubRepo
+import com.personalworkstation.app.core.model.GithubProfile
+import com.personalworkstation.app.core.model.GithubSettingsStatus
+import com.personalworkstation.app.core.model.Profile
+import com.personalworkstation.app.core.model.ProfileUpdateRequest
 import com.personalworkstation.app.core.model.HealthResponse
 import com.personalworkstation.app.core.model.Note
 import com.personalworkstation.app.core.model.NoteCreateRequest
+import com.personalworkstation.app.core.model.NoteUpdateRequest
+import com.personalworkstation.app.core.model.BoardCreateRequest
+import com.personalworkstation.app.core.model.ColumnCreateRequest
 import com.personalworkstation.app.core.model.Task
 import com.personalworkstation.app.core.model.TaskCreateRequest
 import com.personalworkstation.app.core.model.TaskUpdateRequest
@@ -47,8 +54,16 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
         return client.get("$baseUrl/api/notes$query").body()
     }
 
+    suspend fun note(noteId: Int): Note = client.get("$baseUrl/api/notes/$noteId").body()
+
     suspend fun createNote(request: NoteCreateRequest): Note =
         client.post("$baseUrl/api/notes") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+
+    suspend fun updateNote(noteId: Int, request: NoteUpdateRequest): Note =
+        client.put("$baseUrl/api/notes/$noteId") {
             contentType(ContentType.Application.Json)
             setBody(request)
         }.body()
@@ -66,6 +81,20 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
     suspend fun refreshGithub(): GithubRefreshResponse =
         client.post("$baseUrl/api/github/refresh").body()
 
+    suspend fun githubProfile(): GithubProfile =
+        client.get("$baseUrl/api/github/profile").body()
+
+    suspend fun githubSettings(): GithubSettingsStatus =
+        client.get("$baseUrl/api/github/settings").body()
+
+    suspend fun profile(): Profile = client.get("$baseUrl/api/profile").body()
+
+    suspend fun updateProfile(request: ProfileUpdateRequest): Profile =
+        client.put("$baseUrl/api/profile") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+
     suspend fun createTask(request: TaskCreateRequest): Task =
         client.post("$baseUrl/api/tasks") {
             contentType(ContentType.Application.Json)
@@ -81,6 +110,18 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
     suspend fun deleteTask(taskId: Int) {
         client.delete("$baseUrl/api/tasks/$taskId")
     }
+
+    suspend fun createBoard(request: BoardCreateRequest): Board =
+        client.post("$baseUrl/api/boards") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+
+    suspend fun createColumn(boardId: Int, request: ColumnCreateRequest): BoardColumn =
+        client.post("$baseUrl/api/boards/$boardId/columns") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
 
     fun close() = client.close()
 }

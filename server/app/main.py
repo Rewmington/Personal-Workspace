@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import dashboard, github, notes, tasks
+from .api import connect, dashboard, github, notes, profile, tasks
 from .database import init_db
 from .websocket.handler import websocket_endpoint
 
@@ -36,6 +36,8 @@ app.add_middleware(
 app.include_router(tasks.router)
 app.include_router(notes.router)
 app.include_router(github.router)
+app.include_router(profile.router)
+app.include_router(connect.router)
 app.include_router(dashboard.router)
 
 WEB_DIR = Path(os.getenv("WORKSTATION_WEB_DIR", str(Path(__file__).resolve().parents[2] / "web")))

@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>个人工作台</title>
-  <link rel="stylesheet" href="styles.css">
-  <script defer src="app.js"></script>
+  <link rel="stylesheet" href="styles.css?v=qr1">
+  <script defer src="app.js?v=qr1"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -18,6 +18,7 @@
           <button class="nav-item" data-view="kanban"><span class="nav-icon">▥</span><span>任务看板</span><b class="nav-badge">12</b></button>
           <button class="nav-item" data-view="notes"><span class="nav-icon">▤</span><span>笔记</span></button>
           <button class="nav-item" data-view="github"><span class="nav-icon">◉</span><span>GitHub</span><b class="nav-badge">12</b></button>
+          <button class="nav-item" data-view="tools"><span class="nav-icon">⌘</span><span>开发工具</span></button>
         </nav>
         <div class="sidebar-label">其他</div>
         <nav class="main-nav"><button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span><span>连接设置</span></button></nav>
@@ -32,8 +33,10 @@
       </main>
     </div>
   </div>
-  <dialog id="task-dialog" class="modal"><form method="dialog" id="task-form"><div class="modal-head"><div><span class="eyebrow">NEW TASK</span><h2>新建任务</h2></div><button type="button" class="icon-button dialog-close" data-dialog-close="task-dialog" title="关闭">×</button></div><label>标题<input name="title" required maxlength="200" placeholder="例如：整理 API 文档"></label><label>描述<textarea name="description" rows="4" placeholder="补充任务背景"></textarea></label><label>优先级<select name="priority"><option value="medium">中</option><option value="high">高</option><option value="low">低</option></select></label><div class="modal-actions"><button type="button" class="secondary-button dialog-close" data-dialog-close="task-dialog">取消</button><button value="default" class="primary-button">创建任务</button></div></form></dialog>
-  <dialog id="note-dialog" class="modal"><form method="dialog" id="note-form"><div class="modal-head"><div><span class="eyebrow">NEW NOTE</span><h2>新建笔记</h2></div><button type="button" class="icon-button dialog-close" data-dialog-close="note-dialog" title="关闭">×</button></div><label>标题<input name="title" required maxlength="200" placeholder="笔记标题"></label><label>内容<textarea name="content" rows="8" placeholder="记录想法、方案或知识"></textarea></label><label>标签<input name="tags" placeholder="用逗号分隔，例如：MVP,设计"></label><div class="modal-actions"><button type="button" class="secondary-button dialog-close" data-dialog-close="note-dialog">取消</button><button value="default" class="primary-button">保存笔记</button></div></form></dialog>
+  <dialog id="task-dialog" class="modal"><form method="dialog" id="task-form"><div class="modal-head"><div><span class="eyebrow" id="task-dialog-eyebrow">NEW TASK</span><h2 id="task-dialog-title">新建任务</h2></div><button type="button" class="icon-button dialog-close" data-dialog-close="task-dialog" title="关闭">×</button></div><label>标题<input name="title" required maxlength="200" placeholder="例如：整理 API 文档"></label><label>描述<textarea name="description" rows="4" placeholder="补充任务背景"></textarea></label><div class="form-row"><label>优先级<select name="priority"><option value="medium">中</option><option value="high">高</option><option value="low">低</option></select></label><label>截止日期<input name="due_date" type="date"></label></div><label id="task-column-field">任务列<select name="column_id" id="task-column"></select></label><div class="modal-actions"><button type="button" class="secondary-button dialog-close" data-dialog-close="task-dialog">取消</button><button value="default" id="task-submit" class="primary-button">创建任务</button></div></form></dialog>
+  <dialog id="note-dialog" class="modal"><form method="dialog" id="note-form"><div class="modal-head"><div><span class="eyebrow" id="note-dialog-eyebrow">NEW NOTE</span><h2 id="note-dialog-title">新建笔记</h2></div><button type="button" class="icon-button dialog-close" data-dialog-close="note-dialog" title="关闭">×</button></div><label>标题<input name="title" required maxlength="200" placeholder="笔记标题"></label><label>内容<textarea name="content" rows="8" placeholder="记录想法、方案或知识"></textarea></label><label>标签<input name="tags" placeholder="用逗号分隔，例如：MVP,设计"></label><div class="modal-actions"><button type="button" class="secondary-button dialog-close" data-dialog-close="note-dialog">取消</button><button value="default" id="note-submit" class="primary-button">保存笔记</button></div></form></dialog>
+  <dialog id="board-dialog" class="modal"><form method="dialog" id="board-form"><div class="modal-head"><div><span class="eyebrow">NEW BOARD</span><h2>新建看板</h2></div><button type="button" class="icon-button dialog-close" data-dialog-close="board-dialog" title="关闭">×</button></div><label>看板名称<input name="name" required maxlength="100" placeholder="例如：个人项目、学习计划"></label><div class="modal-actions"><button type="button" class="secondary-button dialog-close" data-dialog-close="board-dialog">取消</button><button value="default" class="primary-button">创建看板</button></div></form></dialog>
+  <dialog id="column-dialog" class="modal"><form method="dialog" id="column-form"><div class="modal-head"><div><span class="eyebrow">NEW COLUMN</span><h2>新建任务列</h2></div><button type="button" class="icon-button dialog-close" data-dialog-close="column-dialog" title="关闭">×</button></div><label>列名称<input name="name" required maxlength="100" placeholder="例如：待审核、阻塞"></label><div class="modal-actions"><button type="button" class="secondary-button dialog-close" data-dialog-close="column-dialog">取消</button><button value="default" class="primary-button">创建任务列</button></div></form></dialog>
   <div id="toast" class="toast" role="status"></div>
 </body>
 </html>

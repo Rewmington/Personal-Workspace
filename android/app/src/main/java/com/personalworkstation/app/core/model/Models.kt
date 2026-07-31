@@ -47,6 +47,13 @@ data class NoteCreateRequest(
 )
 
 @Serializable
+data class NoteUpdateRequest(
+    val title: String? = null,
+    val content: String? = null,
+    val tags: List<String>? = null,
+)
+
+@Serializable
 data class GithubRepo(
     val id: Int,
     val name: String,
@@ -76,6 +83,33 @@ data class GithubRefreshResponse(
     val fetched_commits: Int = 0,
     val fetched_events: Int = 0,
     val message: String = "",
+)
+
+@Serializable
+data class GithubProfile(
+    val login: String = "",
+    val name: String = "",
+    val avatar_url: String = "",
+    val html_url: String = "",
+    val bio: String = "",
+)
+
+@Serializable
+data class GithubSettingsStatus(
+    val username: String = "",
+    val token_configured: Boolean = false,
+)
+
+@Serializable
+data class Profile(
+    val display_name: String = "Liu Developer",
+    val github_username: String = "",
+)
+
+@Serializable
+data class ProfileUpdateRequest(
+    val display_name: String,
+    val github_username: String = "",
 )
 
 @Serializable
@@ -114,6 +148,7 @@ data class TaskCreateRequest(
     val title: String,
     val description: String = "",
     val priority: String = "medium",
+    val due_date: String? = null,
 )
 
 @Serializable
@@ -122,5 +157,12 @@ data class TaskUpdateRequest(
     val title: String? = null,
     val description: String? = null,
     val priority: String? = null,
+    val due_date: String? = null,
     val position: Int? = null,
 )
+
+@Serializable
+data class BoardCreateRequest(val name: String)
+
+@Serializable
+data class ColumnCreateRequest(val name: String, val position: Int = 0)

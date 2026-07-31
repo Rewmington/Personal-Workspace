@@ -93,6 +93,16 @@ class GithubSettingsStatus(BaseModel):
     username: str = ""
     token_configured: bool = False
 
+
+class Profile(BaseModel):
+    display_name: str = "Liu Developer"
+    github_username: str = ""
+
+
+class ProfileUpdate(BaseModel):
+    display_name: str = Field(min_length=1, max_length=100)
+    github_username: str = Field(default="", max_length=100)
+
 class GithubRefreshResponse(BaseModel):
     ok: bool
     fetched_repositories: int

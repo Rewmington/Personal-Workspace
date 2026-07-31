@@ -29,6 +29,7 @@ class Settings:
     github_token: str | None
     github_username: str | None
     github_fetch_timeout: float
+    display_name: str
 
     def save_github(self, username: str | None, token: str | None) -> None:
         self.github_username = username or None
@@ -55,6 +56,22 @@ class Settings:
             except OSError:
                 pass
 
+    def save_profile(self, display_name: str) -> None:
+        self.display_name = display_name.strip()
+        values = _read_local_config()
+        values["display_name"] = self.display_name
+        fd, temp_name = tempfile.mkstemp(prefix="settings-", suffix=".json", dir=LOCAL_CONFIG_PATH.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(values, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+            os.replace(temp_name, LOCAL_CONFIG_PATH)
+        finally:
+            try:
+                Path(temp_name).unlink(missing_ok=True)
+            except OSError:
+                pass
+
 
 _local = _read_local_config()
 settings = Settings(
@@ -64,5 +81,6 @@ settings = Settings(
     github_token=os.getenv("GITHUB_TOKEN") or _local.get("github_token") or None,
     github_username=os.getenv("GITHUB_USERNAME") or _local.get("github_username") or None,
     github_fetch_timeout=float(os.getenv("GITHUB_FETCH_TIMEOUT", "15")),
+    display_name=str(os.getenv("WORKSTATION_DISPLAY_NAME") or _local.get("display_name") or "Liu Developer"),
 )
 

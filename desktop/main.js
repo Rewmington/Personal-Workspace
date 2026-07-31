@@ -173,7 +173,9 @@ function createWindow() {
     }
     return { action: "allow" };
   });
-  mainWindow.loadURL(`${localUrl()}/app/`);
+  mainWindow.webContents.session.clearCache().finally(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(`${localUrl()}/app/?v=${Date.now()}`);
+  });
   mainWindow.on("closed", () => { mainWindow = null; });
 }
 

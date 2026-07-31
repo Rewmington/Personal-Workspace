@@ -2,8 +2,13 @@ const state = {
   view: "dashboard",
   baseUrl: window.localStorage.getItem("workstationBaseUrl") || window.location.origin,
   boardId: null,
+  boards: [],
   columns: [],
   kanbanUndo: [],
+  tool: "json",
+  noteEditingId: null,
+  noteTag: "all",
+  taskEditingId: null,
 };
 
 if (window.workstationDesktop) state.baseUrl = window.location.origin;
@@ -52,7 +57,7 @@ function showError(error) { content.innerHTML = `<div class="empty">加载失败
 async function navigate(view) {
   state.view = view;
   document.querySelectorAll("[data-view]").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
-  const titles = { dashboard: "仪表盘", kanban: "任务看板", notes: "笔记", github: "GitHub", settings: "连接设置" };
+  const titles = { dashboard: "仪表盘", kanban: "任务看板", notes: "笔记", github: "GitHub", tools: "开发工具", settings: "连接设置" };
   $("#page-title").textContent = titles[view] || "仪表盘";
   showLoading();
   try {
@@ -60,6 +65,7 @@ async function navigate(view) {
     if (view === "kanban") await renderKanban();
     if (view === "notes") await renderNotes();
     if (view === "github") await renderGithub();
+    if (view === "tools") renderTools();
     if (view === "settings") await renderSettings();
     $("#last-updated").textContent = `同步于 ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
   } catch (error) { showError(error); }
@@ -90,28 +96,54 @@ function eventLabel(type) {
 }
 
 async function renderKanban() {
-  const boards = await api("/api/boards");
-  if (!boards.length) throw new Error("还没有创建看板");
-  state.boardId = boards[0].id;
+  state.boards = await api("/api/boards");
+  if (!state.boards.length) throw new Error("还没有创建看板");
+  if (!state.boardId || !state.boards.some((board) => board.id === state.boardId)) state.boardId = state.boards[0].id;
   state.columns = await api(`/api/boards/${state.boardId}/tasks`);
   renderKanbanMarkup();
 }
 
-function renderKanbanMarkup(filter = "") {
+function renderKanbanMarkup(filter = "", priorityFilter = "all", dueFilter = "all") {
   const normalized = filter.trim().toLowerCase();
   const columns = state.columns.map((column) => {
-    const tasks = column.tasks.filter((task) => !normalized || `${task.title} ${task.description}`.toLowerCase().includes(normalized));
-    return `<section class="kanban-column"><div class="column-head"><strong>${escapeHtml(column.name)}</strong><span class="count">${tasks.length}</span></div><div class="task-list">${tasks.length ? tasks.map((task) => taskMarkup(task)).join("") : '<div class="empty">暂无任务</div>'}</div></section>`;
+    const tasks = column.tasks.filter((task) => {
+      const textMatch = !normalized || `${task.title} ${task.description}`.toLowerCase().includes(normalized);
+      const priorityMatch = priorityFilter === "all" || task.priority === priorityFilter;
+      const dueState = taskDueState(task, column.name);
+      const dueMatch = dueFilter === "all" || dueState === dueFilter;
+      return textMatch && priorityMatch && dueMatch;
+    });
+    return `<section class="kanban-column"><div class="column-head"><strong>${escapeHtml(column.name)}</strong><span class="count">${tasks.length}</span></div><div class="task-list">${tasks.length ? tasks.map((task) => taskMarkup(task, column.name)).join("") : '<div class="empty">暂无任务</div>'}</div></section>`;
   }).join("");
-  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">SPRINT BOARD</div><h2>${escapeHtml(state.columns[0]?.board_name || "个人工作台")}</h2><p>把今天的工作保持在一个清晰的节奏里。</p></div><div class="kanban-toolbar"><input id="task-search" class="search" placeholder="搜索任务…" value="${escapeHtml(filter)}">${state.kanbanUndo.length ? `<button id="kanban-undo" class="icon-button" title="撤销上一步" aria-label="撤销上一步">↶</button>` : ""}<button id="kanban-add" class="primary-button">＋ 新建任务</button></div></div><div class="kanban-columns">${columns}</div>`;
-  $("#task-search").addEventListener("input", (event) => renderKanbanMarkup(event.target.value));
+  const boardOptions = state.boards.map((board) => `<option value="${board.id}">${escapeHtml(board.name)}</option>`).join("");
+  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">SPRINT BOARD</div><div class="board-heading"><select id="board-select" class="board-select">${boardOptions}</select><button id="board-add" class="icon-button" title="新建看板" aria-label="新建看板">＋</button></div><p>把今天的工作保持在一个清晰的节奏里。</p></div><div class="kanban-toolbar"><input id="task-search" class="search" placeholder="搜索任务…" value="${escapeHtml(filter)}"><select id="task-priority-filter" class="filter-select"><option value="all">全部优先级</option><option value="high">高优先级</option><option value="medium">中优先级</option><option value="low">低优先级</option></select><select id="task-due-filter" class="filter-select"><option value="all">全部日期</option><option value="today">今天到期</option><option value="overdue">已逾期</option><option value="none">无截止日期</option></select>${state.kanbanUndo.length ? `<button id="kanban-undo" class="icon-button" title="撤销上一步" aria-label="撤销上一步">↶</button>` : ""}<button id="column-add" class="secondary-button">＋ 新建列</button><button id="kanban-add" class="primary-button">＋ 新建任务</button></div></div><div class="kanban-columns">${columns}</div>`;
+  $("#board-select").value = String(state.boardId);
+  $("#board-select").addEventListener("change", async (event) => { state.boardId = Number(event.target.value); state.kanbanUndo = []; await renderKanban(); });
+  $("#board-add").addEventListener("click", () => $("#board-dialog").showModal());
+  $("#column-add").addEventListener("click", () => $("#column-dialog").showModal());
+  $("#task-search").addEventListener("input", (event) => renderKanbanMarkup(event.target.value, $("#task-priority-filter").value, $("#task-due-filter").value));
+  $("#task-priority-filter").value = priorityFilter;
+  $("#task-priority-filter").addEventListener("change", () => renderKanbanMarkup($("#task-search").value, $("#task-priority-filter").value, $("#task-due-filter").value));
+  $("#task-due-filter").value = dueFilter;
+  $("#task-due-filter").addEventListener("change", () => renderKanbanMarkup($("#task-search").value, $("#task-priority-filter").value, $("#task-due-filter").value));
   $("#kanban-add").addEventListener("click", () => openQuick("task"));
   $("#kanban-undo")?.addEventListener("click", () => taskAction("undo", 0));
   document.querySelectorAll("[data-task-action]").forEach((button) => button.addEventListener("click", () => taskAction(button.dataset.taskAction, Number(button.dataset.taskId))));
 }
 
-function taskMarkup(task) {
-  return `<article class="task-card ${escapeHtml(task.priority)}"><h4>${escapeHtml(task.title)}</h4><p>${escapeHtml(task.description || "暂无描述")}</p><div class="task-foot"><span>${escapeHtml(task.priority === "high" ? "高优先级" : task.priority === "low" ? "低优先级" : "中优先级")}</span><div class="task-actions"><button class="small-button" data-task-action="move-left" data-task-id="${task.id}" title="移动到上一列" aria-label="移动到上一列">←</button><button class="small-button" data-task-action="move-right" data-task-id="${task.id}" title="移动到下一列" aria-label="移动到下一列">→</button><button class="small-button danger" data-task-action="delete" data-task-id="${task.id}" title="删除任务" aria-label="删除任务">×</button></div></div></article>`;
+function taskDueState(task, columnName = "") {
+  if (!task.due_date) return "none";
+  if (/完成|归档|done/i.test(columnName)) return "completed";
+  const today = new Date().toISOString().slice(0, 10);
+  if (task.due_date < today) return "overdue";
+  if (task.due_date === today) return "today";
+  return "upcoming";
+}
+
+function taskMarkup(task, columnName) {
+  const dueState = taskDueState(task, columnName);
+  const dueLabel = dueState === "overdue" ? "已逾期" : dueState === "today" ? "今天到期" : task.due_date ? `截止 ${formatDate(task.due_date)}` : "无截止日期";
+  return `<article class="task-card ${escapeHtml(task.priority)} ${dueState === "overdue" ? "overdue" : ""}"><h4>${escapeHtml(task.title)}</h4><p>${escapeHtml(task.description || "暂无描述")}</p><div class="task-foot"><span>${escapeHtml(task.priority === "high" ? "高优先级" : task.priority === "low" ? "低优先级" : "中优先级")} · <i class="due-label ${dueState}">${escapeHtml(dueLabel)}</i></span><div class="task-actions"><button class="small-button" data-task-action="edit" data-task-id="${task.id}" title="编辑任务" aria-label="编辑任务">✎</button><button class="small-button" data-task-action="move-left" data-task-id="${task.id}" title="移动到上一列" aria-label="移动到上一列">←</button><button class="small-button" data-task-action="move-right" data-task-id="${task.id}" title="移动到下一列" aria-label="移动到下一列">→</button><button class="small-button danger" data-task-action="delete" data-task-id="${task.id}" title="删除任务" aria-label="删除任务">×</button></div></div></article>`;
 }
 async function taskAction(action, taskId) {
   try {
@@ -131,6 +163,10 @@ async function taskAction(action, taskId) {
     const columnIndex = state.columns.findIndex((column) => column.tasks.some((task) => task.id === taskId));
     const task = state.columns[columnIndex]?.tasks.find((item) => item.id === taskId);
     if (!task) return;
+    if (action === "edit") {
+      openTaskEditor(task);
+      return;
+    }
     if (action === "delete") {
       if (!window.confirm(`确认删除“${task.title}”？`)) return;
       await api(`/api/tasks/${taskId}`, { method: "DELETE" });
@@ -150,17 +186,47 @@ async function taskAction(action, taskId) {
 async function renderNotes() {
   const notes = await api("/api/notes");
   content.innerHTML = `<div class="view-head"><div><div class="eyebrow">KNOWLEDGE BASE</div><h2>笔记</h2><p>${notes.length} 篇本地笔记</p></div><div class="notes-toolbar"><input id="note-search" class="search" placeholder="搜索笔记…"><button id="note-add" class="primary-button">＋ 新建笔记</button></div></div><div id="notes-grid" class="notes-grid">${notes.length ? notes.map(noteMarkup).join("") : '<div class="empty">还没有笔记。</div>'}</div>`;
+  const tagValues = [...new Set(notes.flatMap((note) => note.tags || []))].sort();
+  const tagOptions = ["<option value=\"all\">全部标签</option>", ...tagValues.map((tag) => "<option value=\"" + escapeHtml(tag) + "\">" + escapeHtml(tag) + "</option>")].join("");
+  $(".notes-toolbar").insertAdjacentHTML("afterbegin", "<select id=\"note-tag\" class=\"filter-select\">" + tagOptions + "</select>");
   $("#note-add").addEventListener("click", () => openQuick("note"));
-  $("#note-search").addEventListener("input", async (event) => {
-    const query = event.target.value.trim();
-    const filtered = query ? await api(`/api/notes?search=${encodeURIComponent(query)}`) : notes;
+  bindNoteCards();
+  const refreshNotes = async () => {
+    const query = $("#note-search").value.trim();
+    const tag = $("#note-tag").value;
+    const params = new URLSearchParams();
+    if (query) params.set("search", query);
+    if (tag !== "all") params.set("tag", tag);
+    const filtered = params.toString() ? await api("/api/notes?" + params.toString()) : notes;
     $("#notes-grid").innerHTML = filtered.length ? filtered.map(noteMarkup).join("") : '<div class="empty">没有匹配的笔记。</div>';
-  });
+    bindNoteCards();
+  };
+  $("#note-search").addEventListener("input", refreshNotes);
+  $("#note-tag").addEventListener("change", refreshNotes);
 }
 
 function noteMarkup(note) {
   const tags = (note.tags || []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
-  return `<article class="note-card"><h3>${escapeHtml(note.title)}</h3><p>${escapeHtml(note.content || "暂无内容")}</p><div class="tags">${tags || '<span class="tag">未分类</span>'}</div><div class="repo-meta"><span>${formatDate(note.updated_at)}</span><span>#${note.id}</span></div></article>`;
+  return `<article class="note-card"><h3>${escapeHtml(note.title)}</h3><p>${escapeHtml(note.content || "暂无内容")}</p><div class="tags">${tags || '<span class="tag">未分类</span>'}</div><div class="repo-meta"><span>${formatDate(note.updated_at)}</span><span>#${note.id}</span></div><div class="note-actions"><button class="small-button" data-note-action="edit" data-note-id="${note.id}">编辑</button><button class="small-button danger" data-note-action="delete" data-note-id="${note.id}">删除</button></div></article>`;
+}
+
+function bindNoteCards() {
+  document.querySelectorAll("[data-note-action]").forEach((button) => button.addEventListener("click", () => noteAction(button.dataset.noteAction, Number(button.dataset.noteId))));
+}
+
+async function noteAction(action, noteId) {
+  try {
+    if (action === "edit") {
+      const note = await api(`/api/notes/${noteId}`);
+      openNoteEditor(note);
+      return;
+    }
+    const title = document.querySelector(`[data-note-id="${noteId}"][data-note-action="delete"]`)?.closest(".note-card")?.querySelector("h3")?.textContent || "这篇笔记";
+    if (!window.confirm(`确认删除“${title}”？`)) return;
+    await api(`/api/notes/${noteId}`, { method: "DELETE" });
+    toast("笔记已删除");
+    await renderNotes();
+  } catch (error) { toast(error.message, true); }
 }
 
 async function renderGithub() {
@@ -173,6 +239,93 @@ async function renderGithub() {
   });
 }
 
+function renderTools() {
+  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">DEVELOPER TOOLKIT</div><h2>开发工具</h2><p>常用数据处理工具在本地运行，不会上传内容。</p></div><span class="tool-local-badge">仅本地处理</span></div><div class="tool-tabs" role="tablist"><button class="tool-tab" data-tool-tab="json">JSON</button><button class="tool-tab" data-tool-tab="base64">Base64</button><button class="tool-tab" data-tool-tab="url">URL 编解码</button><button class="tool-tab" data-tool-tab="regex">正则测试</button></div><section id="tool-panel" class="tool-panel"></section>`;
+  document.querySelectorAll("[data-tool-tab]").forEach((button) => button.addEventListener("click", () => {
+    state.tool = button.dataset.toolTab;
+    renderToolPanel();
+  }));
+  renderToolPanel();
+}
+
+function renderToolPanel() {
+  const panel = $("#tool-panel");
+  if (!panel) return;
+  document.querySelectorAll("[data-tool-tab]").forEach((button) => button.classList.toggle("active", button.dataset.toolTab === state.tool));
+  panel.innerHTML = toolMarkup(state.tool);
+  if (state.tool === "json") bindJsonTool();
+  if (state.tool === "base64") bindBase64Tool();
+  if (state.tool === "url") bindUrlTool();
+  if (state.tool === "regex") bindRegexTool();
+}
+
+function toolMarkup(tool) {
+  if (tool === "base64") return `<div class="tool-head"><div><h3>Base64 编解码</h3><p>适合处理 UTF-8 文本、配置片段和短令牌。</p></div><button class="secondary-button" data-tool-copy="base64-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="base64-input" rows="13" placeholder="输入要编码或解码的文本"></textarea></label><label class="tool-field">输出<textarea id="base64-output" rows="13" readonly placeholder="结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="base64-encode">编码</button><button class="secondary-button" id="base64-decode">解码</button><button class="secondary-button" id="base64-clear">清空</button></div>`;
+  if (tool === "url") return `<div class="tool-head"><div><h3>URL 编解码</h3><p>转换查询参数、路径片段和中文 URL。</p></div><button class="secondary-button" data-tool-copy="url-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="url-input" rows="13" placeholder="例如：个人工作台?tab=notes"></textarea></label><label class="tool-field">输出<textarea id="url-output" rows="13" readonly placeholder="结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="url-encode">编码</button><button class="secondary-button" id="url-decode">解码</button><button class="secondary-button" id="url-clear">清空</button></div>`;
+  if (tool === "regex") return `<div class="tool-head"><div><h3>正则测试</h3><p>即时查看匹配结果和捕获组，支持 JavaScript 正则标志。</p></div></div><div class="regex-controls"><label class="tool-field">表达式<input id="regex-pattern" placeholder="例如：(?<name>\\w+)@\\w+\\.com"></label><label class="tool-field regex-flags">标志<input id="regex-flags" value="g" placeholder="gim"></label></div><label class="tool-field">测试文本<textarea id="regex-input" rows="8" placeholder="粘贴要测试的文本"></textarea></label><div class="tool-actions"><button class="primary-button" id="regex-run">运行匹配</button><button class="secondary-button" id="regex-clear">清空</button></div><div id="regex-output" class="regex-output"><div class="empty">输入表达式和文本后运行匹配。</div></div>`;
+  return `<div class="tool-head"><div><h3>JSON 格式化</h3><p>校验、格式化或压缩 JSON，错误位置会直接提示。</p></div><button class="secondary-button" data-tool-copy="json-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="json-input" rows="15" placeholder="粘贴 JSON 数据"></textarea></label><label class="tool-field">输出<textarea id="json-output" rows="15" readonly placeholder="格式化结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="json-format">格式化</button><button class="secondary-button" id="json-minify">压缩</button><button class="secondary-button" id="json-clear">清空</button></div>`;
+}
+
+function bindJsonTool() {
+  const input = $("#json-input");
+  const output = $("#json-output");
+  const transform = (space) => {
+    try { output.value = JSON.stringify(JSON.parse(input.value), null, space); toast(space ? "JSON 格式化完成" : "JSON 已压缩"); }
+    catch (error) { output.value = `解析失败：${error.message}`; toast("JSON 格式不正确", true); }
+  };
+  $("#json-format").addEventListener("click", () => transform(2));
+  $("#json-minify").addEventListener("click", () => transform(0));
+  $("#json-clear").addEventListener("click", () => { input.value = ""; output.value = ""; });
+  bindToolCopy();
+}
+
+function bindBase64Tool() {
+  const input = $("#base64-input");
+  const output = $("#base64-output");
+  $("#base64-encode").addEventListener("click", () => { try { output.value = encodeBase64(input.value); toast("Base64 编码完成"); } catch (error) { toast(error.message, true); } });
+  $("#base64-decode").addEventListener("click", () => { try { const bytes = Uint8Array.from(atob(input.value.trim()), (char) => char.charCodeAt(0)); output.value = new TextDecoder().decode(bytes); toast("Base64 解码完成"); } catch (error) { output.value = "解码失败：请输入有效的 Base64"; toast("Base64 内容不正确", true); } });
+  $("#base64-clear").addEventListener("click", () => { input.value = ""; output.value = ""; });
+  bindToolCopy();
+}
+
+function encodeBase64(value) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  return btoa(binary);
+}
+
+function bindUrlTool() {
+  const input = $("#url-input");
+  const output = $("#url-output");
+  $("#url-encode").addEventListener("click", () => { output.value = encodeURIComponent(input.value); toast("URL 编码完成"); });
+  $("#url-decode").addEventListener("click", () => { try { output.value = decodeURIComponent(input.value); toast("URL 解码完成"); } catch (_) { output.value = "解码失败：请输入有效的 URL 编码"; toast("URL 内容不正确", true); } });
+  $("#url-clear").addEventListener("click", () => { input.value = ""; output.value = ""; });
+  bindToolCopy();
+}
+
+function bindRegexTool() {
+  const run = () => {
+    const output = $("#regex-output");
+    try {
+      const expression = new RegExp($("#regex-pattern").value, $("#regex-flags").value);
+      const text = $("#regex-input").value;
+      const matches = expression.global ? [...text.matchAll(expression)] : (text.match(expression) ? [text.match(expression)] : []);
+      output.innerHTML = matches.length ? `<div class="regex-summary">匹配到 ${matches.length} 处</div>${matches.map((match, index) => `<div class="regex-match"><b>#${index + 1}</b><code>${escapeHtml(match[0])}</code><span>位置 ${match.index ?? 0}${match.length > 1 ? ` · 捕获组 ${escapeHtml(match.slice(1).filter(Boolean).join(" / "))}` : ""}</span></div>`).join("")}` : '<div class="empty">没有匹配结果。</div>';
+    } catch (error) { output.innerHTML = `<div class="empty">表达式错误：${escapeHtml(error.message)}</div>`; }
+  };
+  $("#regex-run").addEventListener("click", run);
+  $("#regex-clear").addEventListener("click", () => { $("#regex-pattern").value = ""; $("#regex-input").value = ""; $("#regex-output").innerHTML = '<div class="empty">输入表达式和文本后运行匹配。</div>'; });
+}
+
+function bindToolCopy() {
+  document.querySelectorAll("[data-tool-copy]").forEach((button) => button.addEventListener("click", async () => {
+    const value = $("#" + button.dataset.toolCopy)?.value || "";
+    if (!value) { toast("没有可复制的结果", true); return; }
+    try { await navigator.clipboard.writeText(value); toast("结果已复制"); } catch (_) { toast("复制失败，请手动选择结果", true); }
+  }));
+}
+
 async function renderSettings() {
   const url = new URL(state.baseUrl);
   const desktopBridge = window.workstationDesktop;
@@ -182,13 +335,23 @@ async function renderSettings() {
   }
   let github = { username: "", token_configured: false };
   try { github = await api("/api/github/settings"); } catch (_) { /* older server without local settings */ }
+  let profile = { display_name: "Liu Developer", github_username: github.username || "" };
+  try { profile = await api("/api/profile"); } catch (_) { /* older server without profile settings */ }
   const localHost = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
   const configuredHost = desktopConfig?.host || url.hostname;
   const configuredPort = desktopConfig?.port || url.port || "8080";
-  const lanUrls = (desktopConfig?.lanUrls || []).map((item) => `<span class="connection-address">${escapeHtml(item)}</span>`).join("");
+  const lanUrlValues = desktopConfig?.lanUrls || [];
+  const lanUrls = lanUrlValues.map((item) => `<span class="connection-address">${escapeHtml(item)}</span>`).join("");
+  const qrAddress = lanUrlValues[0] || (localHost ? window.location.origin : "");
+  const qrMarkup = qrAddress ? `<img class="connection-qr" src="${escapeHtml(`${state.baseUrl}/api/connect/qr?url=${encodeURIComponent(qrAddress)}`)}" alt="电脑连接二维码" loading="lazy"><small>用手机扫描二维码自动填写连接地址。</small>` : "";
   const listenerNote = desktopBridge
-    ? `<div class="connection-note"><span class="connection-icon">⌁</span><div><strong>手机连接地址</strong><div class="connection-addresses">${lanUrls || '<span class="connection-empty">未检测到局域网地址</span>'}</div><small>手机和电脑连接同一 Wi-Fi 后，使用上面的地址。</small></div></div><div class="settings-note">软件启动时会自动打开服务；保存监听设置后自动重启，关闭软件时服务也会停止。</div>`
+    ? `<div class="connection-note"><span class="connection-icon">⌁</span><div><strong>手机连接地址</strong><div class="connection-addresses">${lanUrls || '<span class="connection-empty">未检测到局域网地址</span>'}</div><small>手机和电脑连接同一 Wi-Fi 后，使用上面的地址。</small>${qrMarkup}</div></div><div class="settings-note">软件启动时会自动打开服务；保存监听设置后自动重启，关闭软件时服务也会停止。</div>`
     : `<div class="settings-note">这里用于连接已经运行的工作台服务。手机或其他电脑请填写运行服务电脑的局域网 IPv4 地址。</div>`;  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">LOCAL CONNECTION</div><h2>连接设置</h2><p>服务地址和 GitHub 凭据都保存在本机配置中。</p></div></div><div class="settings-grid"><div class="panel"><div class="panel-head"><h3>${desktopBridge ? "服务器监听" : "服务端地址"}</h3><span id="settings-status">${desktopBridge ? "运行中" : "未测试"}</span></div><form id="settings-form" class="settings-form"><label>${desktopBridge ? "监听 HOST" : "HOST"}<input name="host" value="${escapeHtml(configuredHost)}" placeholder="0.0.0.0"></label><label>PORT<input name="port" value="${escapeHtml(configuredPort)}" inputmode="numeric"></label>${listenerNote}<button class="primary-button">${desktopBridge ? "保存并重启服务" : "测试并保存"}</button></form></div><div class="panel"><div class="panel-head"><h3>GitHub 数据</h3><span id="github-settings-status">${github.token_configured ? "Token 已保存" : "未配置 Token"}</span></div><form id="github-settings-form" class="settings-form"><label>用户名<input name="username" value="${escapeHtml(github.username)}" placeholder="例如 octocat" required></label><label>Token<input name="token" type="password" autocomplete="off" placeholder="${github.token_configured ? "留空保留当前 Token" : "可选，公开数据可不填"}"></label><div class="settings-note">只允许在运行服务的电脑上保存。配置文件不会放进 Web 目录，也不会上传。</div><button class="primary-button" ${localHost ? "" : "disabled"}>保存 GitHub 设置</button></form></div></div><div class="panel"><div class="panel-head"><h3>当前能力</h3><span>v0.1.0</span></div><div class="progress-row"><span>REST API</span><strong class="delta">已连接</strong></div><div class="progress-row"><span>SQLite 数据</span><strong class="delta">本地</strong></div><div class="progress-row"><span>WebSocket</span><strong class="delta">已就绪</strong></div><div class="progress-row"><span>GitHub 缓存</span><strong class="delta">按需刷新</strong></div></div>`;
+  const settingsGrid = content.querySelector(".settings-grid");
+  settingsGrid?.insertAdjacentHTML("beforeend", `<div class="panel"><div class="panel-head"><h3>个人资料</h3><span id="profile-status">已同步</span></div><form id="profile-form" class="settings-form"><label>显示名称<input name="display_name" value="${escapeHtml(profile.display_name)}" maxlength="100" required></label><label>GitHub 用户名<input name="github_username" value="${escapeHtml(profile.github_username || github.username)}" maxlength="100" placeholder="可选"></label><div class="settings-note">保存后手机端连接此电脑时会自动同步。</div><button class="primary-button">保存个人资料</button></form></div>`);
+  const capabilityPanel = content.querySelector(".settings-grid + .panel");
+  if (capabilityPanel && !$("#export-data")) capabilityPanel.insertAdjacentHTML("beforeend", '<div class="settings-export"><span>数据备份</span><button id="export-data" class="secondary-button">导出 JSON</button></div>');
+  $("#export-data")?.addEventListener("click", exportLocalData);
   if (!localHost) toast("请在运行服务的电脑上用 127.0.0.1 打开设置页", true);
   $("#settings-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -232,6 +395,17 @@ async function renderSettings() {
       await loadGithubProfile();
     } catch (error) { toast(error.message, true); }
   });
+  $("#profile-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      const result = await api("/api/profile", { method: "PUT", body: JSON.stringify({ display_name: String(form.get("display_name") || "").trim(), github_username: String(form.get("github_username") || "").trim() }) });
+      $("#profile-status").textContent = "已保存";
+      const sidebarName = $("#sidebar-name");
+      if (sidebarName) sidebarName.textContent = result.display_name;
+      toast("个人资料已保存，手机端会自动同步");
+    } catch (error) { $("#profile-status").textContent = "保存失败"; toast(error.message, true); }
+  });
 }
 async function apiWithBase(base, path) {
   const response = await fetch(`${base}${path}`);
@@ -239,10 +413,92 @@ async function apiWithBase(base, path) {
   return response.json();
 }
 
+async function exportLocalData() {
+  const button = $("#export-data");
+  if (button) button.disabled = true;
+  try {
+    const boards = await api("/api/boards");
+    const boardData = [];
+    for (const board of boards) boardData.push({ board, columns: await api(`/api/boards/${board.id}/tasks`) });
+    const [notes, repos, activity] = await Promise.all([api("/api/notes"), api("/api/github/repos"), api("/api/github/activity?limit=100")]);
+    const payload = { format: "personal-workstation-backup", version: 1, exported_at: new Date().toISOString(), boards: boardData, notes, github: { repos, activity } };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `personal-workstation-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast("本地数据已导出");
+  } catch (error) { toast(error.message, true); }
+  finally { if (button) button.disabled = false; }
+}
+
 function openQuick(kind) {
-  if (kind === "task") $("#task-dialog").showModal();
-  else if (kind === "note") $("#note-dialog").showModal();
+  if (kind === "task") openNewTaskDialog();
+  else if (kind === "note") {
+    state.noteEditingId = null;
+    $("#note-form").reset();
+    $("#note-dialog-eyebrow").textContent = "NEW NOTE";
+    $("#note-dialog-title").textContent = "新建笔记";
+    $("#note-submit").textContent = "保存笔记";
+    $("#note-dialog").showModal();
+  }
   else toast("请从侧边栏选择具体页面");
+}
+
+async function loadTaskColumns() {
+  if (state.columns.length) return state.columns;
+  const boards = await api("/api/boards");
+  if (!boards.length) throw new Error("请先创建任务看板");
+  state.boardId = boards[0].id;
+  state.columns = await api("/api/boards/" + state.boardId + "/tasks");
+  return state.columns;
+}
+
+function fillTaskColumns(selectedId) {
+  const select = $("#task-column");
+  select.innerHTML = state.columns.map((column) => "<option value=\"" + column.id + "\">" + escapeHtml(column.name) + "</option>").join("");
+  if (selectedId) select.value = String(selectedId);
+}
+
+async function openNewTaskDialog() {
+  try {
+    await loadTaskColumns();
+    state.taskEditingId = null;
+    $("#task-form").reset();
+    fillTaskColumns(state.columns[0]?.id);
+    $("#task-dialog-eyebrow").textContent = "NEW TASK";
+    $("#task-dialog-title").textContent = "新建任务";
+    $("#task-submit").textContent = "创建任务";
+    $("#task-dialog").showModal();
+  } catch (error) { toast(error.message, true); }
+}
+
+function openTaskEditor(task) {
+  state.taskEditingId = task.id;
+  const form = $("#task-form");
+  form.elements.title.value = task.title || "";
+  form.elements.description.value = task.description || "";
+  form.elements.priority.value = task.priority || "medium";
+  form.elements.due_date.value = task.due_date || "";
+  fillTaskColumns(task.column_id);
+  $("#task-dialog-eyebrow").textContent = "EDIT TASK";
+  $("#task-dialog-title").textContent = "编辑任务";
+  $("#task-submit").textContent = "更新任务";
+  $("#task-dialog").showModal();
+}
+
+function openNoteEditor(note) {
+  state.noteEditingId = note.id;
+  const form = $("#note-form");
+  form.elements.title.value = note.title || "";
+  form.elements.content.value = note.content || "";
+  form.elements.tags.value = (note.tags || []).join(", ");
+  $("#note-dialog-eyebrow").textContent = "EDIT NOTE";
+  $("#note-dialog-title").textContent = "编辑笔记";
+  $("#note-submit").textContent = "更新笔记";
+  $("#note-dialog").showModal();
 }
 
 function bindViewButtons() {
@@ -261,10 +517,34 @@ $("#task-form").addEventListener("submit", async (event) => {
   const formElement = event.currentTarget;
     const form = new FormData(formElement);
   try {
-    const columns = state.columns.length ? state.columns : await api(`/api/boards/${state.boardId || 1}/tasks`);
+    const columns = await loadTaskColumns();
     if (!columns.length) throw new Error("请先创建任务列");
-    await api("/api/tasks", { method: "POST", body: JSON.stringify({ column_id: columns[0].id, title: form.get("title"), description: form.get("description"), priority: form.get("priority") }) });
-    event.currentTarget.reset(); $("#task-dialog").close(); toast("任务已创建");
+    const payload = { column_id: Number(form.get("column_id") || columns[0].id), title: form.get("title"), description: form.get("description"), priority: form.get("priority"), due_date: form.get("due_date") || null };
+    const editing = Boolean(state.taskEditingId);
+    await api(editing ? "/api/tasks/" + state.taskEditingId : "/api/tasks", { method: editing ? "PUT" : "POST", body: JSON.stringify(payload) });
+    state.taskEditingId = null;
+    event.currentTarget.reset(); $("#task-dialog").close(); toast(editing ? "任务已更新" : "任务已创建");
+    if (state.view === "kanban") await renderKanban();
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#board-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  try {
+    const board = await api("/api/boards", { method: "POST", body: JSON.stringify({ name: form.get("name") }) });
+    state.boardId = board.id;
+    event.currentTarget.reset(); $("#board-dialog").close(); toast("看板已创建");
+    if (state.view === "kanban") await renderKanban();
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#column-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  try {
+    await api("/api/boards/" + state.boardId + "/columns", { method: "POST", body: JSON.stringify({ name: form.get("name") }) });
+    event.currentTarget.reset(); $("#column-dialog").close(); toast("任务列已创建");
     if (state.view === "kanban") await renderKanban();
   } catch (error) { toast(error.message, true); }
 });
@@ -275,7 +555,9 @@ $("#note-form").addEventListener("submit", async (event) => {
   const formElement = event.currentTarget;
     const form = new FormData(formElement);
   try {
-    await api("/api/notes", { method: "POST", body: JSON.stringify({ title: form.get("title"), content: form.get("content"), tags: String(form.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean) }) });
+    const payload = { title: form.get("title"), content: form.get("content"), tags: String(form.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean) };
+    await api(state.noteEditingId ? `/api/notes/${state.noteEditingId}` : "/api/notes", { method: state.noteEditingId ? "PUT" : "POST", body: JSON.stringify(payload) });
+    state.noteEditingId = null;
     event.currentTarget.reset(); $("#note-dialog").close(); toast("笔记已保存");
     if (state.view === "notes") await renderNotes();
   } catch (error) { toast(error.message, true); }
@@ -284,22 +566,25 @@ $("#note-form").addEventListener("submit", async (event) => {
 
 async function loadGithubProfile() {
   try {
-    const profile = await api("/api/github/profile");
-    if (!profile?.login) return;
+    const local = await api("/api/profile").catch(() => ({ display_name: "", github_username: "" }));
+    const profile = await api("/api/github/profile").catch(() => ({}));
+    const login = profile?.login || local.github_username || "";
+    const displayName = local.display_name || profile?.name || login;
+    if (!login && !displayName) return;
     const avatar = $("#sidebar-avatar");
     const name = $("#sidebar-name");
     const subtitle = $("#sidebar-subtitle");
     if (avatar) {
-      avatar.textContent = (profile.login || "G").slice(0, 1).toUpperCase();
+      avatar.textContent = (login || displayName || "G").slice(0, 1).toUpperCase();
       if (profile.avatar_url) {
         avatar.style.backgroundImage = `url("${String(profile.avatar_url).replace(/"/g, "%22")}")`;
         avatar.classList.add("has-image");
       }
     }
-    if (name) name.textContent = profile.name || profile.login;
-    if (subtitle) subtitle.textContent = `@${profile.login}`;
+    if (name) name.textContent = displayName;
+    if (subtitle) subtitle.textContent = login ? `@${login}` : "本地工作区";
     const greeting = $("#dashboard-greeting");
-    if (greeting) greeting.textContent = `下午好，${profile.name || profile.login}`;
+    if (greeting) greeting.textContent = `下午好，${displayName}`;
   } catch (_) {
     // GitHub profile is optional; the local fallback remains visible.
   }

@@ -1,11 +1,14 @@
 package com.personalworkstation.app
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.CalendarContract
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -55,6 +58,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,13 +76,19 @@ import com.personalworkstation.app.core.model.BoardColumn
 import com.personalworkstation.app.core.model.DashboardSummary
 import com.personalworkstation.app.core.model.GithubActivity
 import com.personalworkstation.app.core.model.GithubHeatmap
+import com.personalworkstation.app.core.model.GithubProfile
 import com.personalworkstation.app.core.model.GithubRepo
 import com.personalworkstation.app.core.model.Note
 import com.personalworkstation.app.core.model.NoteCreateRequest
+import com.personalworkstation.app.core.model.NoteUpdateRequest
+import com.personalworkstation.app.core.model.ProfileUpdateRequest
+import com.personalworkstation.app.core.model.BoardCreateRequest
+import com.personalworkstation.app.core.model.ColumnCreateRequest
 import com.personalworkstation.app.core.model.Task
 import com.personalworkstation.app.core.model.TaskCreateRequest
 import com.personalworkstation.app.core.model.TaskUpdateRequest
 import com.personalworkstation.app.core.network.ApiClient
+import com.google.zxing.integration.android.IntentIntegrator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -132,11 +142,30 @@ private fun WorkstationApp() {
         var notifications by remember { mutableStateOf(prefs.getBoolean("notifications", true)) }
         var githubSync by remember { mutableStateOf(prefs.getBoolean("github_sync", true)) }
         var focusMode by remember { mutableStateOf(prefs.getBoolean("focus_mode", false)) }
+        var profileSyncStatus by remember { mutableStateOf<String?>(null) }
+        val appScope = rememberCoroutineScope()
         val client = remember(host, port) {
             ApiClient(normalizeHost(host), port.toIntOrNull()?.coerceIn(1, 65535) ?: 8080)
         }
         fun saveBoolean(key: String, value: Boolean) {
             prefs.edit().putBoolean(key, value).apply()
+        }
+        LaunchedEffect(client) {
+            profileSyncStatus = null
+            try {
+                val remote = client.profile()
+                if (remote.display_name.isNotBlank()) {
+                    displayName = remote.display_name
+                    prefs.edit().putString("display_name", remote.display_name).apply()
+                }
+                if (remote.github_username.isNotBlank()) {
+                    githubUsername = remote.github_username
+                    prefs.edit().putString("github_username", remote.github_username).apply()
+                }
+                profileSyncStatus = "已从电脑同步"
+            } catch (_: Exception) {
+                profileSyncStatus = "连接后同步失败，保留本机资料"
+            }
         }
         Scaffold(
             containerColor = bg,
@@ -189,10 +218,24 @@ private fun WorkstationApp() {
                         },
                         displayName = displayName,
                         githubUsername = githubUsername,
+                        profileSyncStatus = profileSyncStatus,
+                        onScanConnection = { scanned ->
+                            val parsed = Uri.parse(scanned)
+                            parsed.host?.let { onHost ->
+                                host = onHost
+                                prefs.edit().putString("host", onHost).apply()
+                                val scannedPort = parsed.port.takeIf { it > 0 } ?: 8080
+                                port = scannedPort.toString()
+                                prefs.edit().putString("port", port).apply()
+                            }
+                        },
                         onProfileSave = { name, username ->
                             displayName = name
                             githubUsername = username
                             prefs.edit().putString("display_name", name).putString("github_username", username).apply()
+                            appScope.launch {
+                                runCatching { client.updateProfile(ProfileUpdateRequest(name, username)) }
+                            }
                         },
                         notifications = notifications,
                         onNotificationsChange = {
@@ -561,6 +604,8 @@ private fun StatLine(label: String, value: String) {
 @Composable
 private fun KanbanScreen(client: ApiClient) {
     var boardName by remember { mutableStateOf("Sprint") }
+    var boards by remember { mutableStateOf<List<com.personalworkstation.app.core.model.Board>>(emptyList()) }
+    var selectedBoardId by remember { mutableIntStateOf(0) }
     var columns by remember { mutableStateOf<List<BoardColumn>>(emptyList()) }
     var query by remember { mutableStateOf("") }
     var selectedColumn by remember { mutableStateOf<Int?>(null) }
@@ -569,9 +614,16 @@ private fun KanbanScreen(client: ApiClient) {
     var showFocus by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
     var showAdd by remember { mutableStateOf(false) }
+    var showBoardAdd by remember { mutableStateOf(false) }
+    var showColumnAdd by remember { mutableStateOf(false) }
     var undoMoves by remember { mutableStateOf<List<TaskMove>>(emptyList()) }
     var newTitle by remember { mutableStateOf("") }
     var newDescription by remember { mutableStateOf("") }
+    var newDueDate by remember { mutableStateOf("") }
+    var newPriority by remember { mutableStateOf("medium") }
+    var editingTaskId by remember { mutableStateOf<Int?>(null) }
+    var boardDraftName by remember { mutableStateOf("") }
+    var columnDraftName by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     fun reload() {
@@ -579,7 +631,10 @@ private fun KanbanScreen(client: ApiClient) {
             loading = true
             error = null
             try {
-                val board = client.boards().firstOrNull() ?: throw IllegalStateException("还没有看板")
+                boards = client.boards()
+                if (boards.isEmpty()) throw IllegalStateException("还没有看板")
+                if (selectedBoardId == 0 || boards.none { it.id == selectedBoardId }) selectedBoardId = boards.first().id
+                val board = boards.first { it.id == selectedBoardId }
                 boardName = board.name
                 columns = client.boardTasks(board.id)
             } catch (e: Exception) {
@@ -616,6 +671,15 @@ fun moveTask(task: Task, target: BoardColumn) {
         }
     }
 
+    fun editTask(task: Task) {
+        editingTaskId = task.id
+        newTitle = task.title
+        newDescription = task.description
+        newDueDate = task.due_date.orEmpty()
+        newPriority = task.priority
+        showAdd = true
+    }
+
     LaunchedEffect(client) { reload() }
     val total = columns.sumOf { it.tasks.size }
     val visible = columns.filter { selectedColumn == null || it.id == selectedColumn }
@@ -633,6 +697,7 @@ fun moveTask(task: Task, target: BoardColumn) {
                 if (undoMoves.isNotEmpty()) {
                     TextButton(onClick = { undoMove() }) { Text("撤销", color = greenLight) }
                 }
+                TextButton(onClick = { columnDraftName = ""; showColumnAdd = true }) { Text("＋列", color = greenLight) }
                 Button(
                     onClick = { newTitle = ""; newDescription = ""; showAdd = true },
                     modifier = Modifier.size(42.dp),
@@ -640,6 +705,16 @@ fun moveTask(task: Task, target: BoardColumn) {
                     contentPadding = PaddingValues(0.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = green),
                 ) { Text("+", fontSize = 24.sp) }
+            }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(boards) { board ->
+                    FilterChip(
+                        selected = board.id == selectedBoardId,
+                        onClick = { selectedBoardId = board.id; reload() },
+                        label = { Text(board.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    )
+                }
+                item { TextButton(onClick = { boardDraftName = ""; showBoardAdd = true }) { Text("＋看板", color = greenLight) } }
             }
             SearchField(query, { query = it }, "搜索任务、描述...")
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -673,7 +748,7 @@ fun moveTask(task: Task, target: BoardColumn) {
             ) {
                 if (error != null) item { Text(error ?: "", color = errorColor) }
                 items(visible) { column ->
-                    KanbanColumn(column, columns, query, client, ::moveTask, ::reload)
+                    KanbanColumn(column, columns, query, client, ::moveTask, ::editTask, ::reload)
                 }
             }
         }
@@ -681,8 +756,8 @@ fun moveTask(task: Task, target: BoardColumn) {
 
     if (showAdd) {
         AlertDialog(
-            onDismissRequest = { showAdd = false },
-            title = { Text("新建任务") },
+            onDismissRequest = { showAdd = false; editingTaskId = null },
+            title = { Text(if (editingTaskId == null) "新建任务" else "编辑任务") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
@@ -701,6 +776,8 @@ fun moveTask(task: Task, target: BoardColumn) {
                         label = { Text("任务描述") },
                         colors = fieldColors(),
                     )
+                    OutlinedTextField(newDueDate, { newDueDate = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("截止日期 YYYY-MM-DD") }, colors = fieldColors())
+                    OutlinedTextField(newPriority, { newPriority = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("优先级 low / medium / high") }, colors = fieldColors())
                 }
             },
             confirmButton = {
@@ -709,14 +786,12 @@ fun moveTask(task: Task, target: BoardColumn) {
                     onClick = {
                         scope.launch {
                             try {
-                                client.createTask(
-                                    TaskCreateRequest(
-                                        columns.first().id,
-                                        newTitle.trim(),
-                                        newDescription.trim(),
-                                    ),
-                                )
+                                val dueDate = newDueDate.trim().takeIf { it.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) }
+                                val priority = newPriority.trim().lowercase().takeIf { it in setOf("low", "medium", "high") } ?: "medium"
+                                if (editingTaskId == null) client.createTask(TaskCreateRequest(columns.first().id, newTitle.trim(), newDescription.trim(), priority, dueDate))
+                                else client.updateTask(editingTaskId!!, TaskUpdateRequest(title = newTitle.trim(), description = newDescription.trim(), priority = priority, due_date = dueDate))
                                 showAdd = false
+                                editingTaskId = null
                                 reload()
                             } catch (e: Exception) {
                                 error = friendlyError(e)
@@ -725,7 +800,25 @@ fun moveTask(task: Task, target: BoardColumn) {
                     },
                 ) { Text("创建") }
             },
-            dismissButton = { TextButton(onClick = { showAdd = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { showAdd = false; editingTaskId = null }) { Text("取消") } },
+        )
+    }
+    if (showBoardAdd) {
+        AlertDialog(
+            onDismissRequest = { showBoardAdd = false },
+            title = { Text("新建看板") },
+            text = { OutlinedTextField(boardDraftName, { boardDraftName = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("看板名称") }, colors = fieldColors()) },
+            confirmButton = { TextButton(enabled = boardDraftName.isNotBlank(), onClick = { scope.launch { try { val board = client.createBoard(BoardCreateRequest(boardDraftName.trim())); selectedBoardId = board.id; showBoardAdd = false; reload() } catch (e: Exception) { error = friendlyError(e) } } }) { Text("创建") } },
+            dismissButton = { TextButton(onClick = { showBoardAdd = false }) { Text("取消") } },
+        )
+    }
+    if (showColumnAdd) {
+        AlertDialog(
+            onDismissRequest = { showColumnAdd = false },
+            title = { Text("新建任务列") },
+            text = { OutlinedTextField(columnDraftName, { columnDraftName = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("列名称") }, colors = fieldColors()) },
+            confirmButton = { TextButton(enabled = columnDraftName.isNotBlank() && selectedBoardId != 0, onClick = { scope.launch { try { client.createColumn(selectedBoardId, ColumnCreateRequest(columnDraftName.trim())); showColumnAdd = false; reload() } catch (e: Exception) { error = friendlyError(e) } } }) { Text("创建") } },
+            dismissButton = { TextButton(onClick = { showColumnAdd = false }) { Text("取消") } },
         )
     }
 }
@@ -737,6 +830,7 @@ private fun KanbanColumn(
     query: String,
     client: ApiClient,
     moveTask: (Task, BoardColumn) -> Unit,
+    editTask: (Task) -> Unit,
     reload: () -> Unit,
 ) {
     val tasks = column.tasks.filter {
@@ -753,12 +847,12 @@ private fun KanbanColumn(
             Text(tasks.size.toString(), fontSize = 11.sp, color = dim)
         }
         if (tasks.isEmpty()) EmptyText("暂无匹配任务")
-        tasks.forEach { TaskCard(it, columns, client, moveTask, reload) }
+        tasks.forEach { TaskCard(it, columns, client, moveTask, editTask, reload) }
     }
 }
 
 @Composable
-private fun TaskCard(task: Task, columns: List<BoardColumn>, client: ApiClient, moveTask: (Task, BoardColumn) -> Unit, reload: () -> Unit) {
+private fun TaskCard(task: Task, columns: List<BoardColumn>, client: ApiClient, moveTask: (Task, BoardColumn) -> Unit, editTask: (Task) -> Unit, reload: () -> Unit) {
     val scope = rememberCoroutineScope()
     Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(panel)) {
         Row(Modifier.fillMaxWidth()) {
@@ -781,7 +875,10 @@ private fun TaskCard(task: Task, columns: List<BoardColumn>, client: ApiClient, 
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(priorityLabel(task.priority), fontSize = 11.sp, color = priorityColor(task.priority))
+                    Column {
+                        Text(priorityLabel(task.priority), fontSize = 11.sp, color = priorityColor(task.priority))
+                        if (!task.due_date.isNullOrBlank()) Text("截止 " + task.due_date, fontSize = 10.sp, color = if ((task.due_date ?: "") < LocalDate.now().toString()) errorColor else muted)
+                    }
                     Row {
                         val index = columns.indexOfFirst { it.id == task.column_id }
                         val previous = columns.getOrNull(index - 1)
@@ -792,6 +889,7 @@ private fun TaskCard(task: Task, columns: List<BoardColumn>, client: ApiClient, 
                         if (next != null) {
                             TextButton(onClick = { moveTask(task, next) }) { Text("→", fontSize = 16.sp) }
                         }
+                        TextButton(onClick = { editTask(task) }) { Text("编辑", fontSize = 11.sp, color = greenLight) }
                         TextButton(onClick = {
                             scope.launch {
                                 client.deleteTask(task.id)
@@ -809,11 +907,13 @@ private fun TaskCard(task: Task, columns: List<BoardColumn>, client: ApiClient, 
 private fun NotesScreen(client: ApiClient) {
     var notes by remember { mutableStateOf<List<Note>>(emptyList()) }
     var query by remember { mutableStateOf("") }
+    var selectedTag by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var showFocus by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
     var showAdd by remember { mutableStateOf(false) }
+    var editingNoteId by remember { mutableStateOf<Int?>(null) }
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
     var tags by remember { mutableStateOf("") }
@@ -834,6 +934,8 @@ private fun NotesScreen(client: ApiClient) {
     }
 
     LaunchedEffect(client, query) { reload() }
+    val availableTags = notes.flatMap { it.tags }.distinct().sorted()
+    val visibleNotes = notes.filter { selectedTag == null || selectedTag in it.tags }
 
     Column(Modifier.fillMaxSize()) {
         Column(
@@ -851,6 +953,24 @@ private fun NotesScreen(client: ApiClient) {
                 ) { Text("+ 新建", fontSize = 12.sp) }
             }
             SearchField(query, { query = it }, "搜索笔记内容...")
+            if (availableTags.isNotEmpty()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        FilterChip(
+                            selected = selectedTag == null,
+                            onClick = { selectedTag = null },
+                            label = { Text("全部") },
+                        )
+                    }
+                    items(availableTags) { tag ->
+                        FilterChip(
+                            selected = selectedTag == tag,
+                            onClick = { selectedTag = if (selectedTag == tag) null else tag },
+                            label = { Text(tag, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        )
+                    }
+                }
+            }
         }
         if (loading) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
@@ -863,9 +983,15 @@ private fun NotesScreen(client: ApiClient) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (error != null) item { Text(error ?: "", color = errorColor) }
-                if (notes.isEmpty()) item { EmptyText("还没有笔记，先记录一个想法吧") }
-                items(notes) { note ->
-                    NoteCard(note) {
+                if (visibleNotes.isEmpty()) item { EmptyText(if (notes.isEmpty()) "还没有笔记，先记录一个想法吧" else "没有匹配该标签的笔记") }
+                items(visibleNotes) { note ->
+                    NoteCard(note, onEdit = {
+                        editingNoteId = note.id
+                        title = note.title
+                        content = note.content
+                        tags = note.tags.joinToString(", ")
+                        showAdd = true
+                    }) {
                         scope.launch {
                             client.deleteNote(note.id)
                             reload()
@@ -878,8 +1004,8 @@ private fun NotesScreen(client: ApiClient) {
 
     if (showAdd) {
         AlertDialog(
-            onDismissRequest = { showAdd = false },
-            title = { Text("新建笔记") },
+            onDismissRequest = { showAdd = false; editingNoteId = null },
+            title = { Text(if (editingNoteId == null) "新建笔记" else "编辑笔记") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("标题") }, colors = fieldColors())
@@ -891,14 +1017,11 @@ private fun NotesScreen(client: ApiClient) {
                 TextButton(enabled = title.isNotBlank(), onClick = {
                     scope.launch {
                         try {
-                            client.createNote(
-                                NoteCreateRequest(
-                                    title.trim(),
-                                    content.trim(),
-                                    tags.split(",").map { it.trim() }.filter { it.isNotBlank() },
-                                ),
-                            )
+                            val tagList = tags.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                            if (editingNoteId == null) client.createNote(NoteCreateRequest(title.trim(), content.trim(), tagList))
+                            else client.updateNote(editingNoteId!!, NoteUpdateRequest(title = title.trim(), content = content.trim(), tags = tagList))
                             showAdd = false
+                            editingNoteId = null
                             reload()
                         } catch (e: Exception) {
                             error = friendlyError(e)
@@ -906,13 +1029,13 @@ private fun NotesScreen(client: ApiClient) {
                     }
                 }) { Text("保存") }
             },
-            dismissButton = { TextButton(onClick = { showAdd = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { showAdd = false; editingNoteId = null }) { Text("取消") } },
         )
     }
 }
 
 @Composable
-private fun NoteCard(note: Note, onDelete: () -> Unit) {
+private fun NoteCard(note: Note, onEdit: () -> Unit, onDelete: () -> Unit) {
     Panel(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
@@ -922,7 +1045,10 @@ private fun NoteCard(note: Note, onDelete: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Text(note.tags.joinToString(" · ").ifBlank { relativeDate(note.updated_at) }, fontSize = 11.sp, color = greenLight)
             }
-            TextButton(onClick = onDelete) { Text("删除", color = errorColor, fontSize = 11.sp) }
+            Column {
+                TextButton(onClick = onEdit) { Text("编辑", color = greenLight, fontSize = 11.sp) }
+                TextButton(onClick = onDelete) { Text("删除", color = errorColor, fontSize = 11.sp) }
+            }
         }
     }
 }
@@ -931,6 +1057,8 @@ private fun GithubScreen(client: ApiClient) {
     var repos by remember { mutableStateOf<List<GithubRepo>>(emptyList()) }
     var activity by remember { mutableStateOf<List<GithubActivity>>(emptyList()) }
     var heatmap by remember { mutableStateOf<GithubHeatmap?>(null) }
+    var profile by remember { mutableStateOf<GithubProfile?>(null) }
+    var settings by remember { mutableStateOf<com.personalworkstation.app.core.model.GithubSettingsStatus?>(null) }
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -946,6 +1074,8 @@ private fun GithubScreen(client: ApiClient) {
                 repos = client.githubRepos()
                 activity = client.githubActivity()
                 heatmap = client.heatmap(84)
+                profile = client.githubProfile()
+                settings = client.githubSettings()
             } catch (e: Exception) {
                 error = friendlyError(e)
             } finally {
@@ -993,7 +1123,7 @@ private fun GithubScreen(client: ApiClient) {
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 if (error != null) item { Text(error ?: "", color = errorColor) }
-                item { GithubProfile(repos, activity) }
+                item { GithubProfileCard(profile, settings, repos, activity) }
                 item { HeatmapPanel(heatmap, "提交热力图") }
                 item {
                     Panel(Modifier.fillMaxWidth()) {
@@ -1015,17 +1145,24 @@ private fun GithubScreen(client: ApiClient) {
 }
 
 @Composable
-private fun GithubProfile(repos: List<GithubRepo>, activity: List<GithubActivity>) {
+private fun GithubProfileCard(
+    profile: GithubProfile?,
+    settings: com.personalworkstation.app.core.model.GithubSettingsStatus?,
+    repos: List<GithubRepo>,
+    activity: List<GithubActivity>,
+) {
+    val displayName = profile?.name?.ifBlank { profile.login }?.ifBlank { "未配置 GitHub" } ?: "未配置 GitHub"
+    val username = profile?.login?.ifBlank { settings?.username.orEmpty() }.orEmpty()
     Panel(Modifier.fillMaxWidth()) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
             Box(
                 Modifier.size(58.dp).clip(RoundedCornerShape(29.dp)).background(Color(0xFF166534)),
                 contentAlignment = Alignment.Center,
-            ) { Text("L", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+            ) { Text(displayName.firstOrNull()?.uppercase() ?: "G", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
             Column(Modifier.weight(1f)) {
-                Text("Liu Developer", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text("GitHub 本地缓存", fontSize = 13.sp, color = muted)
-                Text("关注个人项目进展与近期活动", fontSize = 12.sp, color = Color(0xFFD4D4D4))
+                Text(displayName, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(if (username.isBlank()) "尚未配置用户名" else "@$username", fontSize = 13.sp, color = muted)
+                Text(profile?.bio?.ifBlank { "关注个人项目进展与近期活动" } ?: "关注个人项目进展与近期活动", fontSize = 12.sp, color = Color(0xFFD4D4D4), maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
         Spacer(Modifier.height(14.dp))
@@ -1080,6 +1217,8 @@ private fun SettingsScreen(
     onPortChange: (String) -> Unit,
     displayName: String,
     githubUsername: String,
+    profileSyncStatus: String?,
+    onScanConnection: (String) -> Unit,
     onProfileSave: (String, String) -> Unit,
     notifications: Boolean,
     onNotificationsChange: (Boolean) -> Unit,
@@ -1094,6 +1233,21 @@ private fun SettingsScreen(
     var localGithubUsername by remember(githubUsername) { mutableStateOf(githubUsername) }
     var profileStatus by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val scanner = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val scan = IntentIntegrator.parseActivityResult(result.resultCode, result.data)
+        val value = scan?.contents
+        if (!value.isNullOrBlank()) {
+            val parsed = Uri.parse(value)
+            if (parsed.scheme == "http" || parsed.scheme == "https") {
+                onScanConnection(value)
+                status = "已读取二维码，请测试连接"
+            } else {
+                status = "二维码不是工作台连接地址"
+            }
+        }
+    }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -1172,6 +1326,12 @@ private fun SettingsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = green),
                 ) { Text(if (testing) "测试中…" else "测试连接") }
+                TextButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        activity?.let { scanner.launch(IntentIntegrator(it).createScanIntent()) }
+                    },
+                ) { Text("扫描电脑二维码", color = greenLight) }
                 if (status != null) {
                     Spacer(Modifier.height(8.dp))
                     Text(status ?: "", color = if (status == "连接成功") greenLight else errorColor, fontSize = 12.sp)
@@ -1222,6 +1382,10 @@ private fun SettingsScreen(
                 if (profileStatus != null) {
                     Spacer(Modifier.height(8.dp))
                     Text(profileStatus ?: "", color = greenLight, fontSize = 12.sp)
+                }
+                if (profileSyncStatus != null) {
+                    Spacer(Modifier.height(5.dp))
+                    Text(profileSyncStatus, color = if (profileSyncStatus == "已从电脑同步") greenLight else muted, fontSize = 11.sp)
                 }
             }
         }
