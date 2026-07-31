@@ -10,6 +10,8 @@ Personal Workstation 是一个面向个人开发者的局域网工作台，秉�
 - **GitHub 追踪**：读取个人资料、仓库、提交记录和动态时间线，支持手动刷新。
 - **实时同步**：REST API + WebSocket，桌面端和 Android 端共享同一份本地数据，操作实时广播。
 - **二维码连接**：电脑端设置页生成局域网连接二维码，Android 扫码自动填入服务器地址。
+- **局域网自动发现**：服务端同时启动 mDNS 和 UDP 广播，Android 点击「扫描局域网」即可自动发现，无需手动输入 IP。
+- **Windows 系统托盘**：支持最小化到托盘，后台静默运行，关闭窗口不退出程序。
 - **桌面服务**：Electron 桌面端内置 Python 服务，打开即启动、关闭即停止，无需手动管理进程。
 - **本地配置**：GitHub Token、服务 IP 和端口保存在 `server/data/`（已加入 .gitignore），不提交到仓库。
 
@@ -25,7 +27,9 @@ PersonalWorkstationDemo1/
 │   │   ├── config.py          # 配置管理（环境变量 + JSON 配置文件）
 │   │   ├── api/               # REST API 模块（tasks/notes/github/dashboard/profile/connect）
 │   │   ├── services/          # 业务服务层（GitHub API 调用 + 缓存）
-│   │   └── websocket/         # WebSocket 连接管理与消息处理
+│   │   ├── websocket/         # WebSocket 连接管理与消息处理
+│   │   ├── mdns_broadcaster.py # mDNS (zeroconf) 局域网广播
+│   │   └── udp_discovery.py   # UDP 广播发现（mDNS 不可用时的回退）
 │   ├── tests/                 # 服务端测试
 │   └── requirements.txt       # Python 依赖
 ├── web/                       # 浏览器 / 桌面端 Web 工作台
@@ -73,28 +77,41 @@ python -m pytest tests/ -v
 
 ## 构建与打包
 
-### Android APK
+### 一键全部编译
+
+```powershell
+.\rebuild-all.bat
+```
+
+依次编译服务端 EXE → Android APK → Electron 桌面安装包。
+
+### 单独编译
+
+**Android APK**
 
 ```powershell
 cd android
 .\gradlew.bat assembleDebug
 ```
 
-APK 输出路径：`android/app/build/outputs/apk/debug/app-debug.apk`
+APK 输出：`android/app/build/outputs/apk/debug/app-debug.apk`
 
-### Windows 桌面安装包
+**Windows 桌面应用（推荐）**
 
 ```powershell
 # 步骤 1：打包 Python 服务为可执行文件
-pyinstaller personal-workstation-server.spec --noconfirm --clean
+pyinstaller personal-workstation-server.spec
 
-# 步骤 2：构建 Electron + NSIS 安装包
+# 步骤 2：构建 Electron 桌面安装包（含系统托盘、窗口管理）
 cd desktop
 npm install
 npm run dist
 ```
 
-安装包输出路径：`desktop/dist/`
+安装包输出：`desktop/dist/个人工作台 Setup 0.1.0.exe`
+
+> **注意**：`dist/personal-workstation-server.exe` 是后台服务（CMD 窗口），不包含 UI。
+> 桌面应用将服务打包在内部，用户只需运行安装后的 `个人工作台.exe`，无需手动管理进程。
 
 ## 数据与安全
 
@@ -115,12 +132,14 @@ APK 位于 `android/app/build/outputs/apk/debug/app-debug.apk`，通过 USB 数�
 
 ### 2. 连接工作台
 
-**方式一：mDNS 自动发现（推荐）**
+**方式一：局域网扫描（推荐）**
 
 1. 确保手机和电脑连接同一 Wi-Fi
 2. 打开 Android App → 设置 → 连接
 3. 点击 **扫描局域网**，等待 3-5 秒
 4. 点击发现的工作台 → 自动填入 IP 和端口 → 测试连接
+
+设备优先尝试 mDNS 发现，如果系统不支持则自动回退到 UDP 广播扫描，无需用户干预。
 
 **方式二：扫码连接**
 
@@ -171,10 +190,11 @@ New-NetFirewallRule -DisplayName "Personal Workstation (8080)" -Direction Inboun
 **Q: 连接测试显示成功但不加载数据？**
 确保电脑端服务命令是 `python run_server.py`（监听 `0.0.0.0`），不要用 `127.0.0.1` 启动。
 
-**Q: mDNS 扫描不到？**
+**Q: 扫描局域网搜不到？**
 - 确认手机和电脑在同一 Wi-Fi 子网
-- 部分企业/校园网络可能屏蔽 mDNS 组播，改用方式二或方式三
-- 重启电脑端服务以确保 zeroconf 广播已启动
+- App 会自动尝试 mDNS 和 UDP 广播两种方式，如果提示「mDNS 不可用，正在 UDP 广播搜索」说明设备系统服务受限但会正常回退
+- 部分企业/校园网络可能屏蔽组播/UDP 广播，改用方式二或方式三
+- Windows 端请运行桌面应用 `个人工作台.exe` 而非直接启动 `personal-workstation-server.exe`（后者不带 UDP 发现）
 
 **Q: WebSocket 自动断开？**
 正常现象 — 每 30 秒自动重连。切后台后唤醒可能延迟 5-10 秒恢复。

@@ -27,3 +27,5 @@ desktop/test-data/*.db
 **/.kotlin/
 **/.gradle-user-home/
 !personal-workstation-server.spec
+desktop-dist/
+rebuild-all.bat
