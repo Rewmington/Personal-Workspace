@@ -11,8 +11,6 @@ server/data/settings.json
 desktop/node_modules/
 desktop/dist/
 desktop/build/
-*.spec
-
 # Generated build output and local runtime files
 build/
 dist/
@@ -26,6 +24,5 @@ desktop/test-data/*.db
 .idea/
 **/.kotlin/
 **/.gradle-user-home/
-!personal-workstation-server.spec
 desktop-dist/
 rebuild-all.bat
