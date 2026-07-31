@@ -185,3 +185,7 @@ data class FocusSession(val id: Int, val task_id: Int? = null, val task_title: S
 data class DevLog(val id: Int, val date: String, val content: String = "", val mood: String = "", val tags: List<String> = emptyList(), val commits: List<String> = emptyList(), val created_at: String = "", val updated_at: String = "")
 @Serializable
 data class DevLogUpdateRequest(val content: String = "", val mood: String = "", val tags: List<String> = emptyList(), val commits: List<String> = emptyList())
+@Serializable
+data class DevLogCalendarDay(val date: String, val length: Int = 0)
+@Serializable
+data class DevLogStreakResponse(val streak: Int = 0)

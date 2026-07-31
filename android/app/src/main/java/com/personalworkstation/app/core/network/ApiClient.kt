@@ -21,7 +21,9 @@ import com.personalworkstation.app.core.model.ColumnCreateRequest
 import com.personalworkstation.app.core.model.Snippet
 import com.personalworkstation.app.core.model.SnippetCreateRequest
 import com.personalworkstation.app.core.model.DevLog
+import com.personalworkstation.app.core.model.DevLogCalendarDay
 import com.personalworkstation.app.core.model.DevLogUpdateRequest
+import com.personalworkstation.app.core.model.DevLogStreakResponse
 import com.personalworkstation.app.core.model.Task
 import com.personalworkstation.app.core.model.TaskCreateRequest
 import com.personalworkstation.app.core.model.TaskUpdateRequest
@@ -150,6 +152,9 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
     suspend fun deleteSnippet(id: Int) { client.delete("$baseUrl/api/snippets/$id") }
     suspend fun todayLog(): DevLog = client.get("$baseUrl/api/logs/today").body()
     suspend fun updateLog(id: Int, request: DevLogUpdateRequest): DevLog = client.put("$baseUrl/api/logs/$id") { contentType(ContentType.Application.Json); setBody(request) }.body()
+    suspend fun logCalendar(year: Int, month: Int): List<DevLogCalendarDay> = client.get("$baseUrl/api/logs/calendar?year=$year&month=$month").body()
+    suspend fun logByDate(date: String): DevLog = client.get("$baseUrl/api/logs?date=$date").body()
+    suspend fun logStreak(): DevLogStreakResponse = client.get("$baseUrl/api/logs/streak").body()
 
     suspend fun createBoard(request: BoardCreateRequest): Board =
         client.post("$baseUrl/api/boards") {

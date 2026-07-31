@@ -10,14 +10,45 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import backup, connect, dashboard, github, notes, profile, tasks, snippets, git, focus, logs
+from .config import settings
 from .database import init_db
+from .mdns_broadcaster import get_mdns_broadcaster
+from .udp_discovery import get_udp_discovery
 from .websocket.handler import websocket_endpoint
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    # 启动 mDNS 广播
+    try:
+        get_mdns_broadcaster().register(
+            host=settings.host,
+            port=settings.port,
+            device_name="个人工作台",
+        )
+    except Exception:
+        import logging
+        logging.getLogger("mdns").warning("mDNS 广播启动失败，局域网自动发现将不可用", exc_info=True)
+    # 启动 UDP 广播发现（NsdManager 不可用时的回退）
+    get_udp_discovery().start(
+        host=settings.host,
+        port=settings.port,
+        device_name=settings.display_name or "个人工作台",
+    )
     yield
+    # 停止 mDNS 广播
+    try:
+        get_mdns_broadcaster().unregister()
+    except Exception:
+        import logging
+        logging.getLogger("mdns").debug("mDNS 广播停止时出错", exc_info=True)
+    # 停止 UDP 发现
+    try:
+        get_udp_discovery().stop()
+    except Exception:
+        import logging
+        logging.getLogger("udp_discovery").debug("UDP 发现停止时出错", exc_info=True)
 
 
 app = FastAPI(

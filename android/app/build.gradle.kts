@@ -48,4 +48,5 @@ dependencies {
     implementation("io.noties.markwon:ext-strikethrough:4.6.2")
     implementation("io.noties.markwon:ext-tables:4.6.2")
     implementation("io.noties.markwon:ext-tasklist:4.6.2")
+    implementation("org.yaml:snakeyaml:2.2")
 }

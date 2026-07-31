@@ -7,6 +7,7 @@ import qrcode
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
+from ..mdns_broadcaster import get_mdns_broadcaster
 
 router = APIRouter(prefix="/api/connect", tags=["connect"])
 
@@ -20,3 +21,14 @@ def connection_qr(url: str = Query(min_length=10, max_length=500)) -> Response:
     output = BytesIO()
     image.save(output, format="PNG")
     return Response(content=output.getvalue(), media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/discover")
+def discover_info():
+    """返回 mDNS 广播信息，供客户端参考。"""
+    b = get_mdns_broadcaster()
+    return {
+        "active": b.active,
+        "service_type": "_personal-workstation._tcp.local.",
+        "service_name": "个人工作台",
+    }

@@ -1,9 +1,13 @@
 package com.personalworkstation.app
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.net.nsd.NsdManager
+import android.net.nsd.NsdServiceInfo
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.provider.CalendarContract
 import android.widget.Toast
@@ -39,8 +43,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -52,10 +60,13 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,19 +75,31 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personalworkstation.app.core.model.BoardColumn
 import com.personalworkstation.app.core.model.DashboardSummary
 import com.personalworkstation.app.core.model.GithubActivity
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import org.yaml.snakeyaml.Yaml
 import com.personalworkstation.app.core.model.GithubHeatmap
 import com.personalworkstation.app.core.model.GithubProfile
 import com.personalworkstation.app.core.model.GithubRepo
@@ -91,6 +114,9 @@ import com.personalworkstation.app.core.model.TaskCreateRequest
 import com.personalworkstation.app.core.model.TaskUpdateRequest
 import com.personalworkstation.app.core.model.Snippet
 import com.personalworkstation.app.core.model.SnippetCreateRequest
+import com.personalworkstation.app.core.model.DevLog
+import com.personalworkstation.app.core.model.DevLogCalendarDay
+import com.personalworkstation.app.core.model.DevLogStreakResponse
 import com.personalworkstation.app.core.model.DevLogUpdateRequest
 import com.personalworkstation.app.core.network.ApiClient
 import com.google.zxing.integration.android.IntentIntegrator
@@ -99,8 +125,14 @@ import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.ext.tasklist.TaskListPlugin
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -140,6 +172,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WorkstationApp() {
     MaterialTheme(colorScheme = colors) {
@@ -156,6 +189,7 @@ private fun WorkstationApp() {
         var profileSyncStatus by remember { mutableStateOf<String?>(null) }
         var realtimeRevision by remember { mutableIntStateOf(0) }
         var realtimeStatus by remember { mutableStateOf("disconnected") }
+        var showScratchpad by remember { mutableStateOf(false) }
         val appScope = rememberCoroutineScope()
         val client = remember(host, port) {
             ApiClient(normalizeHost(host), port.toIntOrNull()?.coerceIn(1, 65535) ?: 8080)
@@ -188,6 +222,16 @@ private fun WorkstationApp() {
         }
         Scaffold(
             containerColor = bg,
+            floatingActionButton = {
+                FloatingActionButton(
+                    onClick = { showScratchpad = true },
+                    containerColor = greenLight,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text("📝", fontSize = 20.sp)
+                }
+            },
             bottomBar = {
                 NavigationBar(containerColor = Color(0xFF0A0A0A), tonalElevation = 0.dp) {
                     mobileTabs.forEachIndexed { index, title ->
@@ -288,6 +332,9 @@ private fun WorkstationApp() {
                     )
                 }
             }
+            if (showScratchpad) {
+                ScratchpadBottomSheet(onDismiss = { showScratchpad = false })
+            }
         }
     }
 }
@@ -324,6 +371,7 @@ private fun DashboardScreen(
     var summary by remember { mutableStateOf<DashboardSummary?>(null) }
     var notes by remember { mutableStateOf<List<Note>>(emptyList()) }
     var activity by remember { mutableStateOf<List<GithubActivity>>(emptyList()) }
+    var repos by remember { mutableStateOf<List<GithubRepo>>(emptyList()) }
     var heatmap by remember { mutableStateOf<GithubHeatmap?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var showFocus by remember { mutableStateOf(false) }
@@ -333,6 +381,7 @@ private fun DashboardScreen(
             summary = client.summary()
             notes = client.notes().take(3)
             activity = if (githubSync) client.githubActivity(4) else emptyList()
+            repos = if (githubSync) client.githubRepos().take(6) else emptyList()
             heatmap = client.heatmap(84)
         } catch (e: Exception) {
             error = friendlyError(e)
@@ -367,6 +416,14 @@ private fun DashboardScreen(
                 SectionTitle("GitHub 动态")
                 if (activity.isEmpty()) EmptyText("暂无 GitHub 活动")
                 activity.forEach { FeedRow(it) }
+            }
+        }
+        if (repos.isNotEmpty()) {
+            item {
+                Panel(Modifier.fillMaxWidth()) {
+                    SectionTitle("仓库概览")
+                    repos.forEach { repo -> DashboardRepoRow(repo, onNavigate) }
+                }
             }
         }
         item {
@@ -437,6 +494,35 @@ private fun ProgressPanel(summary: DashboardSummary?) {
 @Composable
 private fun SectionTitle(text: String) {
     Text(text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = muted, letterSpacing = 1.sp)
+}
+
+@Composable
+private fun DashboardRepoRow(repo: GithubRepo, onNavigate: (Int) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .clickable { onNavigate(3) }
+            .padding(vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(languageColor(repo.language)),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(repo.name, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(
+                repo.language.ifBlank { "?" } + "  ·  " + repo.stars + " ★",
+                fontSize = 11.sp,
+                color = muted,
+            )
+        }
+        Text("▶", fontSize = 8.sp, color = dim)
+    }
 }
 
 @Composable
@@ -563,16 +649,22 @@ private fun FocusDialog(
 ) {
     var running by remember { mutableStateOf(false) }
     var seconds by remember { mutableIntStateOf(25 * 60) }
+    val totalDuring = remember(seconds) { seconds }
+    var sessionCount by remember { mutableIntStateOf(0) }
+    var selectedPreset by remember { mutableIntStateOf(25) }
+    val presets = listOf(15, 25, 45)
     LaunchedEffect(running) {
         while (running && seconds > 0) {
             delay(1000)
             seconds -= 1
         }
-        if (seconds == 0) {
+        if (seconds == 0 && running) {
+            sessionCount++
             running = false
             onFocusModeChange(false)
         }
     }
+    val progress = if (totalDuring > 0) seconds.toFloat() / totalDuring.toFloat() else 1f
     val time = String.format(Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60)
     AlertDialog(
         onDismissRequest = {
@@ -580,32 +672,71 @@ private fun FocusDialog(
             onFocusModeChange(false)
             onDismiss()
         },
-        title = { Text("专注模式") },
+        containerColor = Color(0xFF111111),
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("🍅 番茄钟", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                if (sessionCount > 0) Text("完成 $sessionCount 次", fontSize = 12.sp, color = muted)
+            }
+        },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(time, fontSize = 42.sp, fontWeight = FontWeight.Bold, color = greenLight)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    if (running) "专注计时进行中" else if (focusMode) "专注模式已开启" else "准备开始 25 分钟专注",
-                    color = muted,
-                )
+                Box(Modifier.size(180.dp), contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val strokeW = 8.dp.toPx()
+                        val arcSize = size.minDimension / 2f - strokeW / 2f
+                        val topLeft = Offset(size.width / 2f - arcSize, size.height / 2f - arcSize)
+                        val arcRect = Rect(topLeft, Size(arcSize * 2, arcSize * 2))
+                        drawArc(Color(0x22FFFFFF), 0f, 360f, false, style = Stroke(strokeW, cap = StrokeCap.Round), topLeft = arcRect.topLeft, size = arcRect.size)
+                        drawArc(green, -90f, -360f * progress, false, style = Stroke(strokeW, cap = StrokeCap.Round), topLeft = arcRect.topLeft, size = arcRect.size)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(time, fontSize = 42.sp, fontWeight = FontWeight.Bold, color = greenLight)
+                        Text(
+                            when {
+                                seconds == 0 && sessionCount > 0 -> "完成！休息一下吧 ☕"
+                                running -> "专注中..."
+                                else -> "准备开始"
+                            },
+                            fontSize = 12.sp, color = muted,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    presets.forEach { preset ->
+                        FilterChip(
+                            selected = selectedPreset == preset,
+                            onClick = { if (!running) { selectedPreset = preset; seconds = preset * 60 } },
+                            label = { Text("${preset}min", fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0x3322C55E), selectedLabelColor = greenLight),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("选择预设时长以开始新的专注周期", fontSize = 11.sp, color = dim)
             }
         },
         confirmButton = {
             Button(
                 onClick = {
+                    if (seconds == 0) seconds = selectedPreset * 60
                     running = !running
                     onFocusModeChange(running)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = green),
-            ) { Text(if (running) "暂停" else "开始专注") }
+                colors = ButtonDefaults.buttonColors(containerColor = if (running) Color(0x55555555) else green),
+                shape = RoundedCornerShape(10.dp),
+            ) { Text(if (running) "暂停" else "开始专注", fontSize = 14.sp) }
         },
         dismissButton = {
             TextButton(onClick = {
                 running = false
-                seconds = 25 * 60
+                seconds = selectedPreset * 60
+                sessionCount = 0
                 onFocusModeChange(false)
-            }) { Text("重置") }
+            }) { Text("重置", color = muted) }
         },
     )
 }
@@ -918,10 +1049,10 @@ private fun TaskCard(task: Task, columns: List<BoardColumn>, client: ApiClient, 
                         val previous = columns.getOrNull(index - 1)
                         val next = columns.getOrNull(index + 1)
                         if (previous != null) {
-                            TextButton(onClick = { moveTask(task, previous) }) { Text("←", fontSize = 16.sp) }
+                            TextButton(onClick = { moveTask(task, previous) }) { Text("↑", fontSize = 16.sp) }
                         }
                         if (next != null) {
-                            TextButton(onClick = { moveTask(task, next) }) { Text("→", fontSize = 16.sp) }
+                            TextButton(onClick = { moveTask(task, next) }) { Text("↓", fontSize = 16.sp) }
                         }
                         TextButton(onClick = { editTask(task) }) { Text("编辑", fontSize = 11.sp, color = greenLight) }
                         TextButton(onClick = {
@@ -941,7 +1072,7 @@ private fun TaskCard(task: Task, columns: List<BoardColumn>, client: ApiClient, 
 private fun MoreScreen(onNavigate: (Int) -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { PageTitle("更多", "工具、日志和连接设置") }
-        item { Panel(Modifier.fillMaxWidth()) { MoreEntry("开发工具", "JSON、Base64、URL 和时间戳处理", "⌘") { onNavigate(5) }; MoreEntry("每日开发日志", "记录进展、问题和下一步计划", "▣") { onNavigate(6) }; MoreEntry("连接设置", "服务器、二维码和个人资料", "⚙") { onNavigate(7) } } }
+        item { Panel(Modifier.fillMaxWidth()) { MoreEntry("开发工具", "JSON/YAML/Base64/URL/时间戳/JWT/正则/Markdown", "⌘") { onNavigate(5) }; MoreEntry("每日开发日志", "记录进展、问题和下一步计划", "▣") { onNavigate(6) }; MoreEntry("连接设置", "服务器、二维码和个人资料", "⚙") { onNavigate(7) } } }
     }
 }
 
@@ -956,21 +1087,348 @@ private fun MoreEntry(title: String, subtitle: String, icon: String, onClick: ()
 
 @Composable
 private fun ToolboxScreen() {
-    var input by remember { mutableStateOf("") }; var output by remember { mutableStateOf("") }; var mode by remember { mutableStateOf("JSON") }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { item { PageTitle("开发工具", "本地处理敏感数据，不上传内容") }; item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("JSON", "Base64", "URL", "时间戳").forEach { label -> FilterChip(selected = mode == label, onClick = { mode = label }, label = { Text(label) }) } } }; item { Panel(Modifier.fillMaxWidth()) { OutlinedTextField(input, { input = it }, Modifier.fillMaxWidth(), minLines = 8, label = { Text("输入") }, colors = fieldColors()); Spacer(Modifier.height(8.dp)); Button(onClick = { output = runCatching { when (mode) { "JSON" -> kotlinx.serialization.json.Json { prettyPrint = true }.parseToJsonElement(input).toString(); "Base64" -> android.util.Base64.encodeToString(input.toByteArray(), android.util.Base64.NO_WRAP); "URL" -> java.net.URLEncoder.encode(input, "UTF-8"); else -> java.time.Instant.ofEpochSecond(input.toLong()).toString() } }.getOrElse { "处理失败：${it.message}" } }, colors = ButtonDefaults.buttonColors(containerColor = green)) { Text("处理") }; Spacer(Modifier.height(8.dp)); OutlinedTextField(output, {}, Modifier.fillMaxWidth(), minLines = 8, readOnly = true, label = { Text("输出") }, colors = fieldColors()) } } }
+    var input by remember { mutableStateOf("") }
+    var output by remember { mutableStateOf("") }
+    var mode by remember { mutableStateOf("JSON") }
+    var base64Dir by remember { mutableStateOf("编码") }
+    var urlDir by remember { mutableStateOf("编码") }
+    var tsDir by remember { mutableStateOf("戳→日期") }
+    val context = LocalContext.current
+    var history by remember { mutableStateOf(loadToolHistory(context)) }
+    val modes = listOf("JSON", "JSON↔YAML", "Base64", "URL", "时间戳", "JWT", "正则", "Markdown")
+
+    @Composable
+    fun ToolButton(label: String, onClickAction: () -> Unit) {
+        Button(onClick = onClickAction, colors = ButtonDefaults.buttonColors(containerColor = green)) { Text(label) }
+    }
+    @Composable
+    fun OutputBar() {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = {
+                    if (output.isNotBlank()) {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("tool_output", output))
+                        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("📋 复制", fontSize = 12.sp, color = greenLight) }
+                TextButton(onClick = {
+                    if (output.isNotBlank()) {
+                        val h = history.toMutableList()
+                        h.removeAll { it == output }
+                        h.add(0, output)
+                        if (h.size > 10) h.removeAt(h.size - 1)
+                        history = h
+                        saveToolHistory(context, h)
+                        Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("💾 存历史", fontSize = 12.sp, color = greenLight) }
+            }
+            if (history.isNotEmpty()) {
+                TextButton(onClick = {
+                    if (history.isNotEmpty()) { input = history.first(); history = history.drop(1); saveToolHistory(context, history) }
+                }) { Text("📜 取历史(${history.size})", fontSize = 12.sp, color = muted) }
+            }
+        }
+    }
+
+    fun process(): String {
+        val json = kotlinx.serialization.json.Json { prettyPrint = true; ignoreUnknownKeys = true }
+        return when (mode) {
+            "JSON" -> json.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), json.parseToJsonElement(input))
+            "JSON↔YAML" -> {
+                val y = Yaml()
+                if (input.trimStart().startsWith("{")) {
+                    y.dump(y.load(input))
+                } else {
+                    fun toJsonElement(v: Any?): kotlinx.serialization.json.JsonElement = when (v) {
+                        is Map<*, *> -> kotlinx.serialization.json.buildJsonObject { v.forEach { (k, value) -> put(k.toString(), toJsonElement(value)) } }
+                        is List<*> -> kotlinx.serialization.json.buildJsonArray { v.forEach { add(toJsonElement(it)) } }
+                        is String -> kotlinx.serialization.json.JsonPrimitive(v)
+                        is Number -> kotlinx.serialization.json.JsonPrimitive(v)
+                        is Boolean -> kotlinx.serialization.json.JsonPrimitive(v)
+                        null -> kotlinx.serialization.json.JsonNull
+                        else -> kotlinx.serialization.json.JsonPrimitive(v.toString())
+                    }
+                    json.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), toJsonElement(y.load(input)))
+                }
+            }
+            "Base64" -> if (base64Dir == "编码") android.util.Base64.encodeToString(input.toByteArray(), android.util.Base64.NO_WRAP)
+            else String(android.util.Base64.decode(input, android.util.Base64.NO_WRAP))
+            "URL" -> if (urlDir == "编码") java.net.URLEncoder.encode(input, "UTF-8") else java.net.URLDecoder.decode(input, "UTF-8")
+            "时间戳" -> if (tsDir == "戳→日期") java.time.Instant.ofEpochSecond(input.toLong()).toString()
+            else (java.time.Instant.parse(input).epochSecond.toString())
+            "JWT" -> {
+                val parts = input.split(".")
+                if (parts.size != 3) "无效 JWT：期望 header.payload.signature 格式"
+                else {
+                    fun decodeB64(s: String): String {
+                        val padded = s.padEnd(s.length + (4 - s.length % 4) % 4, '=')
+                        return String(android.util.Base64.decode(padded, android.util.Base64.URL_SAFE))
+                    }
+                    val header = json.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), json.parseToJsonElement(decodeB64(parts[0])))
+                    val payload = json.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), json.parseToJsonElement(decodeB64(parts[1])))
+                    "Header:\n$header\n\nPayload:\n$payload"
+                }
+            }
+            "正则" -> {
+                val lines = input.lines()
+                if (lines.size < 2) "第一行输入正则表达式\n第二行起为测试文本"
+                else {
+                    val pattern = lines.first()
+                    val text = lines.drop(1).joinToString("\n")
+                    Regex(pattern).findAll(text).joinToString("\n") { "匹配: ${it.value} (位置: ${it.range.first})" }.ifEmpty { "无匹配" }
+                }
+            }
+            "Markdown" -> input
+            else -> "未知模式"
+        }
+    }
+
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { PageTitle("开发工具", "JSON格式化/互转、编解码、时间戳、JWT、正则、Markdown预览") }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(modes.size) { idx ->
+                    FilterChip(selected = mode == modes[idx], onClick = { mode = modes[idx] }, label = { Text(modes[idx], fontSize = 12.sp) })
+                }
+            }
+        }
+        if (mode == "Base64") item { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("编码", "解码").forEach { d -> FilterChip(selected = base64Dir == d, onClick = { base64Dir = d; output = "" }, label = { Text(d, fontSize = 11.sp) }) } } }
+        if (mode == "URL") item { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("编码", "解码").forEach { d -> FilterChip(selected = urlDir == d, onClick = { urlDir = d; output = "" }, label = { Text(d, fontSize = 11.sp) }) } } }
+        if (mode == "时间戳") item { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("戳→日期", "日期→戳").forEach { d -> FilterChip(selected = tsDir == d, onClick = { tsDir = d; output = "" }, label = { Text(d, fontSize = 11.sp) }) } } }
+        item {
+            Panel(Modifier.fillMaxWidth()) {
+                OutlinedTextField(input, { input = it }, Modifier.fillMaxWidth(), minLines = if (mode == "Markdown") 10 else 5, label = { Text(if (mode == "正则") "首行正则 | 其余为测试文本" else "输入") }, colors = fieldColors())
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ToolButton(if (mode == "Markdown") "渲染" else "处理") { output = runCatching { process() }.getOrElse { "错误：${it.message}" } }
+                    TextButton(onClick = { input = ""; output = "" }) { Text("清空", color = muted, fontSize = 12.sp) }
+                    TextButton(onClick = { output = "" }) { Text("清输出", color = muted, fontSize = 12.sp) }
+                }
+                Spacer(Modifier.height(8.dp))
+                if (mode == "Markdown") {
+                    if (output.isNotBlank()) MarkdownPreview(output, Modifier.fillMaxWidth().heightIn(min = 120.dp).clip(RoundedCornerShape(8.dp)).background(softPanel).padding(12.dp))
+                } else {
+                    OutlinedTextField(output, {}, Modifier.fillMaxWidth(), minLines = 8, readOnly = true, label = { Text("输出") }, colors = fieldColors())
+                }
+                Spacer(Modifier.height(8.dp))
+                OutputBar()
+            }
+        }
+    }
+}
+
+private fun loadToolHistory(ctx: Context): List<String> {
+    val raw = ctx.getSharedPreferences("tool_history", Context.MODE_PRIVATE).getString("items", null) ?: return emptyList()
+    return runCatching { raw.split("|||HIST_SPLIT|||") }.getOrDefault(emptyList())
+}
+private fun saveToolHistory(ctx: Context, items: List<String>) {
+    ctx.getSharedPreferences("tool_history", Context.MODE_PRIVATE).edit().putString("items", items.joinToString("|||HIST_SPLIT|||")).apply()
 }
 
 @Composable
 private fun DevLogScreen(client: ApiClient, realtimeRevision: Int = 0) {
-    var log by remember { mutableStateOf<com.personalworkstation.app.core.model.DevLog?>(null) }
+    var log by remember { mutableStateOf<DevLog?>(null) }
     var text by remember { mutableStateOf("") }
     var mood by remember { mutableStateOf("") }
+    var tags by remember { mutableStateOf("") }
+    var selectedDate by remember { mutableStateOf(java.time.LocalDate.now()) }
+    var calendarDays by remember { mutableStateOf<List<DevLogCalendarDay>>(emptyList()) }
+    var streak by remember { mutableIntStateOf(0) }
+    var loading by remember { mutableStateOf(true) }
+    var saving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    LaunchedEffect(client, realtimeRevision) { runCatching { client.todayLog() }.onSuccess { log = it; text = it.content; mood = it.mood } }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { PageTitle("每日开发日志", "记录今天的进展、问题和解决思路") }
-        item { Panel(Modifier.fillMaxWidth()) { Text(log?.date ?: "今天", color = greenLight, fontWeight = FontWeight.Bold); Spacer(Modifier.height(10.dp)); OutlinedTextField(mood, { mood = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("心情") }, colors = fieldColors()); Spacer(Modifier.height(8.dp)); OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth(), minLines = 12, label = { Text("日志内容（支持 Markdown）") }, colors = fieldColors()); Spacer(Modifier.height(10.dp)); Button(onClick = { log?.let { current -> scope.launch { client.updateLog(current.id, DevLogUpdateRequest(text, mood)); Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show() } } }, colors = ButtonDefaults.buttonColors(containerColor = green)) { Text("保存今日") } } }
+    val moodOptions = listOf("😄", "😊", "😐", "😔", "😤", "🔥", "💡", "🚀", "☕", "🐛")
+
+    fun loadDate(dateStr: String) {
+        scope.launch {
+            loading = true
+            runCatching { client.logByDate(dateStr) }.onSuccess {
+                log = it; text = it.content; mood = it.mood; tags = it.tags.joinToString(", ")
+            }
+            loading = false
+        }
+    }
+
+    LaunchedEffect(client, realtimeRevision) {
+        loadDate(java.time.LocalDate.now().toString())
+        runCatching { client.logCalendar(java.time.LocalDate.now().year, java.time.LocalDate.now().monthValue) }.onSuccess { calendarDays = it }
+        runCatching { client.logStreak() }.onSuccess { streak = it.streak }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PageTitle("每日开发日志", "记录进展、问题与解决思路")
+            Spacer(Modifier.weight(1f))
+            Text("🔥 连续 $streak 天", fontSize = 12.sp, color = greenLight, fontWeight = FontWeight.Medium)
+        }
+
+        if (loading) {
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = green)
+            }
+        } else {
+            LazyColumn(
+                Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // Calendar heatmap
+                item {
+                    Panel(Modifier.fillMaxWidth()) {
+                        SectionTitle("月历")
+                        Spacer(Modifier.height(8.dp))
+                        val now = java.time.LocalDate.now()
+                        val year = now.year
+                        val month = now.monthValue
+                        val firstDay = java.time.LocalDate.of(year, month, 1)
+                        val daysInMonth = java.time.LocalDate.of(year, month, 1).lengthOfMonth()
+                        val startDayOfWeek = (firstDay.dayOfWeek.value % 7) // Mon=1 -> 0
+                        val dayMap = calendarDays.associate { it.date to it.length }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            listOf("一", "二", "三", "四", "五", "六", "日").forEach { Text(it, fontSize = 10.sp, color = dim, modifier = Modifier.weight(1f)) }
+                        }
+                        val calendar = mutableListOf<Int?>()
+                        repeat(startDayOfWeek) { calendar.add(null) }
+                        for (d in 1..daysInMonth) calendar.add(d)
+                        val rows = calendar.chunked(7)
+                        rows.forEachIndexed { ri, row ->
+                            val fullRow = if (row.size < 7) row + List(7 - row.size) { null } else row
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                fullRow.forEachIndexed { ci, day ->
+                                    val dateStr = if (day != null) "${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}" else ""
+                                    val len = dayMap[dateStr] ?: 0
+                                    val isToday = day != null && day == now.dayOfMonth
+                                    val bg = when {
+                                        day == null -> Color.Transparent
+                                        len > 200 -> green
+                                        len > 0 -> green.copy(alpha = 0.4f + (len / 200f) * 0.6f)
+                                        else -> Color(0x0AFFFFFF)
+                                    }
+                                    val boxMod = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .padding(2.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(bg)
+                                        .let { if (day != null && !isToday) it.clickable { selectedDate = java.time.LocalDate.of(year, month, day); loadDate(selectedDate.toString()) } else it }
+                                    if (day != null) Box(boxMod, contentAlignment = Alignment.Center) {
+                                        if (isToday) {
+                                            Canvas(Modifier.fillMaxSize()) {
+                                                drawCircle(green, radius = 2.dp.toPx())
+                                            }
+                                        }
+                                        Text(day.toString(), fontSize = 11.sp, color = if (isToday) greenLight else if (len > 0) Color.White else dim)
+                                    } else Spacer(boxMod)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Mood selector
+                item {
+                    Panel(Modifier.fillMaxWidth()) {
+                        SectionTitle("心情")
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            moodOptions.forEach { emoji ->
+                                Box(
+                                    Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (mood == emoji) Color(0x3322C55E) else Color(0x0AFFFFFF))
+                                        .clickable { mood = emoji },
+                                    contentAlignment = Alignment.Center,
+                                ) { Text(emoji, fontSize = 20.sp) }
+                            }
+                        }
+                    }
+                }
+
+                // Tag input
+                item {
+                    Panel(Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = tags,
+                            onValueChange = { tags = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("标签（用逗号分隔）") },
+                            placeholder = { Text("前端, Bug修复, 重构", color = dim) },
+                            colors = fieldColors(),
+                            textStyle = TextStyle(fontSize = 14.sp),
+                        )
+                    }
+                }
+
+                // Date selector
+                item {
+                    Panel(Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("📅 ", fontSize = 14.sp)
+                            Text(selectedDate.toString(), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = greenLight)
+                            Spacer(Modifier.weight(1f))
+                            Box(Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)).clickable {
+                                val prev = selectedDate.minusDays(1)
+                                selectedDate = prev; loadDate(prev.toString())
+                            }, contentAlignment = Alignment.Center) { Text("◀", fontSize = 12.sp, color = muted) }
+                            Box(Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)).clickable {
+                                val next = selectedDate.plusDays(1)
+                                selectedDate = next; loadDate(next.toString())
+                            }, contentAlignment = Alignment.Center) { Text("▶", fontSize = 12.sp, color = muted) }
+                        }
+                    }
+                }
+
+                // Content editor
+                item {
+                    Panel(Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
+                            label = { Text("日志内容（支持 Markdown）") },
+                            placeholder = { Text("记录今天的开发进展、遇到的问题、解决思路...", color = dim) },
+                            colors = fieldColors(),
+                            textStyle = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                saving = true
+                                log?.let { current ->
+                                    scope.launch {
+                                        runCatching {
+                                            client.updateLog(
+                                                current.id,
+                                                DevLogUpdateRequest(
+                                                    content = text,
+                                                    mood = mood,
+                                                    tags = tags.split(",").map { it.trim() }.filter { it.isNotBlank() },
+                                                )
+                                            )
+                                            Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
+                                        }
+                                        saving = false
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = green),
+                            shape = RoundedCornerShape(10.dp),
+                            enabled = !saving,
+                        ) { Text(if (saving) "保存中..." else "💾 保存", fontSize = 14.sp) }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1160,6 +1618,46 @@ private fun NoteCard(note: Note, onEdit: () -> Unit, onDelete: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun GithubProfileCard(
+    profile: GithubProfile?,
+    settings: com.personalworkstation.app.core.model.GithubSettingsStatus?,
+    repos: List<GithubRepo>,
+    activity: List<GithubActivity>,
+) {
+    val displayName = profile?.name?.ifBlank { profile.login }?.ifBlank { "未配置 GitHub" } ?: "未配置 GitHub"
+    val username = profile?.login?.ifBlank { settings?.username.orEmpty() }.orEmpty()
+    Panel(Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
+            Box(
+                Modifier.size(58.dp).clip(RoundedCornerShape(29.dp)).background(Color(0xFF166534)),
+                contentAlignment = Alignment.Center,
+            ) { Text(displayName.firstOrNull()?.uppercase() ?: "G", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+            Column(Modifier.weight(1f)) {
+                Text(displayName, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(if (username.isBlank()) "尚未配置用户名" else "@$username", fontSize = 13.sp, color = muted)
+                Text(profile?.bio?.ifBlank { "关注个人项目进展与近期活动" } ?: "关注个人项目进展与近期活动", fontSize = 12.sp, color = Color(0xFFD4D4D4), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+            StatItem(repos.size.toString(), "仓库")
+            StatItem(activity.size.toString(), "活动")
+            StatItem(repos.sumOf { it.stars }.toString(), "Stars")
+        }
+    }
+}
+
+@Composable
+private fun StatItem(number: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(number, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(label, fontSize = 10.sp, color = muted)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GithubScreen(client: ApiClient, realtimeRevision: Int = 0) {
     var repos by remember { mutableStateOf<List<GithubRepo>>(emptyList()) }
@@ -1172,6 +1670,7 @@ private fun GithubScreen(client: ApiClient, realtimeRevision: Int = 0) {
     var error by remember { mutableStateOf<String?>(null) }
     var showFocus by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
+    var selectedRepo by remember { mutableStateOf<GithubRepo?>(null) }
     val scope = rememberCoroutineScope()
 
     fun reload() {
@@ -1244,56 +1743,27 @@ private fun GithubScreen(client: ApiClient, realtimeRevision: Int = 0) {
                     Panel(Modifier.fillMaxWidth()) {
                         SectionTitle("个人仓库")
                         if (repos.isEmpty()) EmptyText("暂无仓库缓存")
-                        repos.take(8).forEach { RepoRow(it) }
+                        repos.take(8).forEach { repo ->
+                            RepoRow(repo, onClick = { selectedRepo = repo })
+                        }
                     }
                 }
             }
         }
     }
-}
-
-@Composable
-private fun GithubProfileCard(
-    profile: GithubProfile?,
-    settings: com.personalworkstation.app.core.model.GithubSettingsStatus?,
-    repos: List<GithubRepo>,
-    activity: List<GithubActivity>,
-) {
-    val displayName = profile?.name?.ifBlank { profile.login }?.ifBlank { "未配置 GitHub" } ?: "未配置 GitHub"
-    val username = profile?.login?.ifBlank { settings?.username.orEmpty() }.orEmpty()
-    Panel(Modifier.fillMaxWidth()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
-            Box(
-                Modifier.size(58.dp).clip(RoundedCornerShape(29.dp)).background(Color(0xFF166534)),
-                contentAlignment = Alignment.Center,
-            ) { Text(displayName.firstOrNull()?.uppercase() ?: "G", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
-            Column(Modifier.weight(1f)) {
-                Text(displayName, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text(if (username.isBlank()) "尚未配置用户名" else "@$username", fontSize = 13.sp, color = muted)
-                Text(profile?.bio?.ifBlank { "关注个人项目进展与近期活动" } ?: "关注个人项目进展与近期活动", fontSize = 12.sp, color = Color(0xFFD4D4D4), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-            StatItem(repos.size.toString(), "仓库")
-            StatItem(activity.size.toString(), "活动")
-            StatItem(repos.sumOf { it.stars }.toString(), "Stars")
-        }
+    if (selectedRepo != null) {
+        RepoDetailSheet(repo = selectedRepo!!, onDismiss = { selectedRepo = null })
     }
 }
 
 @Composable
-private fun StatItem(number: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(number, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Text(label, fontSize = 10.sp, color = muted)
-    }
-}
-
-@Composable
-private fun RepoRow(repo: GithubRepo) {
+private fun RepoRow(repo: GithubRepo, onClick: () -> Unit = {}) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 9.dp),
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 9.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -1314,6 +1784,151 @@ private fun RepoRow(repo: GithubRepo) {
                 color = dim,
             )
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RepoDetailSheet(repo: GithubRepo, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = panel,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+        ) {
+            // Header
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .size(12.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(languageColor(repo.language)),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        repo.language.ifBlank { "Unknown" },
+                        fontSize = 13.sp,
+                        color = muted,
+                    )
+                }
+                TextButton(onClick = onDismiss) { Text("关闭", color = greenLight) }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            // Repo name
+            Text(
+                repo.owner + " / " + repo.name,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            // Description
+            Text(
+                repo.description.ifBlank { "暂无仓库描述" },
+                fontSize = 14.sp,
+                color = Color(0xFFD4D4D4),
+                lineHeight = 20.sp,
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            // Stats cards
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                RepoStatCard(repo.stars.toString(), "Stars", "⭐")
+                RepoStatCard(repo.open_issues.toString(), "Issues", "📋")
+                if (repo.pushed_at != null) {
+                    RepoStatCard(relativeDate(repo.pushed_at), "最后推送", "⏰")
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            // Info rows
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0x0AFFFFFF)),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    InfoRow("📦 仓库名", repo.name)
+                    InfoRow("👤 所有者", repo.owner)
+                    InfoRow("🌐 URL", repo.html_url)
+                    if (repo.pushed_at != null) {
+                        InfoRow("🕐 最后推送", repo.pushed_at.take(19).replace("T", " "))
+                    }
+                    InfoRow("📅 上次同步", repo.last_fetch_at.take(19).replace("T", " "))
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // Open on GitHub button
+            Button(
+                onClick = {
+                    try {
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(repo.html_url)
+                        )
+                        context.startActivity(intent)
+                    } catch (_: Exception) {}
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636)),
+                shape = RoundedCornerShape(10.dp),
+            ) {
+                Text("🔗 在 GitHub 中打开", fontSize = 14.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RepoStatCard(value: String, label: String, icon: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(icon, fontSize = 18.sp)
+        Spacer(Modifier.height(4.dp))
+        Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(label, fontSize = 10.sp, color = muted)
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+    ) {
+        Text(label, fontSize = 12.sp, color = dim, modifier = Modifier.width(100.dp))
+        Text(
+            value,
+            fontSize = 12.sp,
+            lineHeight = 18.sp,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1345,6 +1960,106 @@ private fun SettingsScreen(
     var backupStatus by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    // mDNS 局域网发现
+    var discovering by remember { mutableStateOf(false) }
+    val discoveredServices = remember { mutableStateListOf<DiscoveredService>() }
+    var discoveryError by remember { mutableStateOf<String?>(null) }
+    val nsdManager = remember { context.getSystemService(Context.NSD_SERVICE) as NsdManager }
+    val wifiLock = remember {
+        (context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
+            .createMulticastLock("workstation-mdns")
+    }
+    // UDP 广播回退发现（当 NsdManager 不可用时）
+    val startUdpDiscovery: suspend () -> Unit = {
+        var socket: DatagramSocket? = null
+        try {
+            val request = "WORKSTATION_DISCOVER".toByteArray()
+            val broadcastAddr = InetAddress.getByName("255.255.255.255")
+            socket = withContext(Dispatchers.IO) {
+                val s = DatagramSocket()
+                s.broadcast = true
+                s.soTimeout = 3000
+                s.send(DatagramPacket(request, request.size, broadcastAddr, 5354))
+                s
+            }
+            val buffer = ByteArray(1024)
+            val deadline = System.currentTimeMillis() + 3000
+            while (System.currentTimeMillis() < deadline) {
+                try {
+                    val response = DatagramPacket(buffer, buffer.size)
+                    withContext(Dispatchers.IO) { socket.receive(response) }
+                    val json = String(response.data, 0, response.length, Charsets.UTF_8)
+                    val obj = JSONObject(json)
+                    if (obj.optString("service") != "personal-workstation") continue
+                    val svc = DiscoveredService(
+                        name = obj.optString("name", "个人工作台"),
+                        host = obj.optString("host", response.address.hostAddress ?: ""),
+                        port = obj.optInt("port", 8080),
+                    )
+                    if (svc.host.isNotBlank() && discoveredServices.none { it.host == svc.host && it.port == svc.port }) {
+                        withContext(Dispatchers.Main) { discoveredServices.add(svc) }
+                    }
+                } catch (_: java.net.SocketTimeoutException) {
+                    break
+                }
+            }
+            if (discoveredServices.isEmpty()) {
+                discovering = false
+                discoveryError = "未发现工作台，请确保电脑和手机在同一 WiFi"
+            } else {
+                discovering = false
+                discoveryError = null
+            }
+        } catch (e: Exception) {
+            discovering = false
+            discoveryError = "UDP 扫描失败: " + (e.message ?: "未知错误")
+        } finally {
+            try { socket?.close() } catch (_: Exception) {}
+        }
+    }
+    val discoveryListener = remember {
+        object : NsdManager.DiscoveryListener {
+            override fun onDiscoveryStarted(serviceType: String) { discovering = true; discoveryError = null }
+            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                if (errorCode == NsdManager.FAILURE_INTERNAL_ERROR) {
+                    discoveryError = "mDNS 不可用，正在 UDP 广播搜索…"
+                    scope.launch { startUdpDiscovery() }
+                } else {
+                    discovering = false
+                    discoveryError = when (errorCode) {
+                        NsdManager.FAILURE_ALREADY_ACTIVE -> "已在扫描中"
+                        else -> "启动扫描失败 (错误码: $errorCode)"
+                    }
+                }
+            }
+            override fun onServiceFound(serviceInfo: NsdServiceInfo) {
+                nsdManager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
+                    override fun onServiceResolved(resolved: NsdServiceInfo) {
+                        val svc = DiscoveredService(
+                            name = resolved.serviceName ?: "个人工作台",
+                            host = resolved.host?.hostAddress ?: return,
+                            port = resolved.port.takeIf { it in 1..65535 } ?: return,
+                        )
+                        if (discoveredServices.none { it.host == svc.host && it.port == svc.port }) {
+                            discoveredServices.add(svc)
+                        }
+                    }
+                    override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
+                })
+            }
+            override fun onServiceLost(serviceInfo: NsdServiceInfo) {
+                discoveredServices.removeAll { it.host == serviceInfo.host?.hostAddress }
+            }
+            override fun onDiscoveryStopped(serviceType: String) { discovering = false }
+            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            try { nsdManager.stopServiceDiscovery(discoveryListener) } catch (_: Exception) {}
+            try { if (wifiLock.isHeld) wifiLock.release() } catch (_: Exception) {}
+        }
+    }
     val activity = context as? Activity
     val backupExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { target ->
         if (target != null) {
@@ -1480,6 +2195,65 @@ private fun SettingsScreen(
                         activity?.let { scanner.launch(IntentIntegrator(it).createScanIntent()) }
                     },
                 ) { Text("扫描电脑二维码", color = greenLight) }
+                Spacer(Modifier.height(4.dp))
+                // 局域网扫描按钮
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !discovering && !testing,
+                    onClick = {
+                        discoveredServices.clear()
+                        discoveryError = null
+                        try {
+                            wifiLock.acquire()
+                            nsdManager.discoverServices(
+                                "_personal-workstation._tcp.local.",
+                                NsdManager.PROTOCOL_DNS_SD,
+                                discoveryListener,
+                            )
+                        } catch (e: Exception) {
+                            discoveryError = "mDNS 不可用，正在 UDP 广播搜索…"
+                            discovering = true
+                            scope.launch { startUdpDiscovery() }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                ) {
+                    if (discovering) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(if (discovering) "正在扫描局域网…" else "扫描局域网")
+                }
+                // 发现的服务列表
+                if (discoveryError != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(discoveryError ?: "", color = errorColor, fontSize = 12.sp)
+                }
+                if (discoveredServices.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("发现 ${discoveredServices.size} 个工作台", fontSize = 11.sp, color = muted)
+                    Spacer(Modifier.height(4.dp))
+                    discoveredServices.forEach { svc ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onHostChange(svc.host)
+                                    onPortChange(svc.port.toString())
+                                    status = "已填入 ${svc.host}:${svc.port}，请测试连接"
+                                }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(svc.name, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Text("${svc.host}:${svc.port}", fontSize = 11.sp, color = muted)
+                            }
+                            Text("▸", color = greenLight, fontSize = 16.sp)
+                        }
+                    }
+                }
                 if (status != null) {
                     Spacer(Modifier.height(8.dp))
                     Text(status ?: "", color = if (status == "连接成功") greenLight else errorColor, fontSize = 12.sp)
@@ -1704,8 +2478,76 @@ private fun friendlyError(exception: Exception): String {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScratchpadBottomSheet(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("scratchpad_prefs", Context.MODE_PRIVATE) }
+    var text by remember { mutableStateOf(prefs.getString("scratchpad_content", "") ?: "") }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
 
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = panel,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("📝 快捷便签", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Row {
+                    TextButton(onClick = {
+                        text = ""
+                        prefs.edit().remove("scratchpad_content").apply()
+                    }) { Text("清空", color = muted) }
+                    TextButton(onClick = { onDismiss() }) { Text("完成", color = greenLight) }
+                }
+            }
 
+            Spacer(Modifier.height(12.dp))
 
+            OutlinedTextField(
+                value = text,
+                onValueChange = { newText ->
+                    text = newText
+                    prefs.edit().putString("scratchpad_content", newText).apply()
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 200.dp, max = 460.dp),
+                placeholder = { Text("随时记录想法、备忘、灵感...", color = muted) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = greenLight,
+                    unfocusedBorderColor = Color(0xFF333333),
+                ),
+                textStyle = TextStyle(fontSize = 15.sp, lineHeight = 22.sp),
+            )
 
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "共 ${text.length} 字符 · 自动保存",
+                fontSize = 11.sp,
+                color = muted,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.End,
+            )
+        }
+    }
+}
 
+/** mDNS 发现的服务 */
+data class DiscoveredService(
+    val name: String,
+    val host: String,
+    val port: Int,
+)

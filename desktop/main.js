@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, Menu, shell, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, Menu, shell, ipcMain, Tray, nativeImage } = require("electron");
 const { spawn } = require("child_process");
 const http = require("http");
 const net = require("net");
@@ -9,10 +9,12 @@ const path = require("path");
 const DEFAULT_PORT = Number(process.env.WORKSTATION_PORT || 8080);
 const DEFAULT_HOST = process.env.WORKSTATION_HOST || "0.0.0.0";
 let mainWindow = null;
+let tray = null;
 let serverProcess = null;
 let ownsServer = false;
 let serverConfig = null;
 let shutdownStarted = false;
+let minimizeToTray = true;
 
 function resourcePath(name) {
   return app.isPackaged ? path.join(process.resourcesPath, name) : path.resolve(__dirname, "..", name);
@@ -20,6 +22,25 @@ function resourcePath(name) {
 
 function configFile() {
   return path.join(app.getPath("userData"), "server-config.json");
+}
+
+function traySettingsFile() {
+  return path.join(app.getPath("userData"), "tray-settings.json");
+}
+
+function loadTraySettings() {
+  try {
+    const data = JSON.parse(fs.readFileSync(traySettingsFile(), "utf8"));
+    minimizeToTray = data.minimizeToTray !== false; // 默认 true
+  } catch (_) {
+    minimizeToTray = true;
+  }
+}
+
+function saveTraySettings() {
+  const target = traySettingsFile();
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, JSON.stringify({ minimizeToTray }, null, 2), "utf8");
 }
 
 function validHost(value) {
@@ -151,6 +172,38 @@ async function ensureServer() {
   return waitForServer();
 }
 
+function createTray() {
+  const iconPath = path.join(__dirname, "assets", "workstation.ico");
+  let trayIcon;
+  try {
+    trayIcon = nativeImage.createFromPath(iconPath);
+    if (trayIcon.isEmpty()) throw new Error("empty icon");
+    trayIcon = trayIcon.resize({ width: 16, height: 16 });
+  } catch (_) {
+    trayIcon = nativeImage.createEmpty();
+  }
+  tray = new Tray(trayIcon);
+  const contextMenu = Menu.buildFromTemplate([
+    { label: "打开工作台", click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } } },
+    { type: "separator" },
+    {
+      label: "最小化到托盘", type: "checkbox", checked: minimizeToTray, click: (item) => {
+        minimizeToTray = item.checked;
+        saveTraySettings();
+      }
+    },
+    { type: "separator" },
+    { label: "退出", click: () => { shutdownStarted = true; app.quit(); } }
+  ]);
+  tray.setToolTip("个人工作台");
+  tray.setContextMenu(contextMenu);
+  tray.on("double-click", () => {
+    if (mainWindow) {
+      mainWindow.isVisible() ? mainWindow.focus() : mainWindow.show();
+    }
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     icon: path.join(__dirname, "assets", "workstation.ico"),
@@ -176,6 +229,14 @@ function createWindow() {
   mainWindow.webContents.session.clearCache().finally(() => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(`${localUrl()}/app/?v=${Date.now()}`);
   });
+
+  // 关闭窗口行为：如果设置了最小化到托盘，则隐藏而不是退出
+  mainWindow.on("close", (event) => {
+    if (!shutdownStarted && minimizeToTray) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
   mainWindow.on("closed", () => { mainWindow = null; });
 }
 
@@ -196,12 +257,21 @@ function registerIpc() {
     const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory", "createDirectory"] });
     return result.canceled ? null : result.filePaths[0];
   });
+  ipcMain.handle("tray-settings:get", () => ({ minimizeToTray }));
+  ipcMain.handle("tray-settings:save", async (_event, settings) => {
+    if (typeof settings.minimizeToTray === "boolean") minimizeToTray = settings.minimizeToTray;
+    saveTraySettings();
+    if (tray) createTray();
+    return { minimizeToTray };
+  });
 }
 
 async function boot() {
   Menu.setApplicationMenu(null);
   serverConfig = readServerConfig();
+  loadTraySettings();
   registerIpc();
+
   const ready = await ensureServer();
   if (!ready) {
     await dialog.showMessageBox({
@@ -214,10 +284,14 @@ async function boot() {
     return;
   }
   createWindow();
+  createTray();
 }
 
 app.whenReady().then(boot);
-app.on("window-all-closed", () => app.quit());
+app.on("window-all-closed", () => {
+  // 如果用户设置了最小化到托盘，则不退出应用
+  // macOS 默认行为需要特殊处理，Windows 上由 close 事件的 hide() 处理
+});
 app.on("before-quit", (event) => {
   if (shutdownStarted || !ownsServer) return;
   event.preventDefault();
