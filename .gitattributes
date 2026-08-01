@@ -1,0 +1,6 @@
+# 标记 .claude 目录为文档，不计入语言统计
+.claude/* linguist-documentation
+.claude/**/* linguist-documentation
+
+# 以 Python 为主要语言
+server/**/*.py linguist-language=Python
