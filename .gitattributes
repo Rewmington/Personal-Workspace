@@ -2,5 +2,10 @@
 .claude/* linguist-documentation
 .claude/**/* linguist-documentation
 
-# 以 Python 为主要语言
-server/**/*.py linguist-language=Python
+# Android 为移动端伴侣，不参与主语言统计
+android/**/*.kt  linguist-vendored
+android/**/*.kts linguist-vendored
+android/**/*.xml linguist-vendored
+
+# Electron 桌面壳，不参与主语言统计
+desktop/*.js linguist-vendored
