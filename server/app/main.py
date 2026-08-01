@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import backup, connect, dashboard, github, notes, profile, tasks, snippets, git, focus, logs
+from .api import backup, connect, dashboard, github, http_client, notes, profile, tasks, snippets, git, focus, logs
 from .config import settings
 from .database import init_db
 from .mdns_broadcaster import get_mdns_broadcaster
@@ -105,6 +105,7 @@ app.include_router(snippets.router)
 app.include_router(git.router)
 app.include_router(focus.router)
 app.include_router(logs.router)
+app.include_router(http_client.router)
 
 WEB_DIR = Path(os.getenv("WORKSTATION_WEB_DIR", str(Path(__file__).resolve().parents[2] / "web")))
 if WEB_DIR.exists():

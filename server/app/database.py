@@ -103,6 +103,21 @@ CREATE TABLE IF NOT EXISTS dev_logs (
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_dev_logs_date ON dev_logs(date);
+CREATE TABLE IF NOT EXISTS http_requests (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  method          TEXT NOT NULL DEFAULT 'GET',
+  url             TEXT NOT NULL,
+  headers         TEXT NOT NULL DEFAULT '[]',
+  body            TEXT NOT NULL DEFAULT '',
+  content_type    TEXT NOT NULL DEFAULT 'json',
+  response_status INTEGER,
+  response_time_ms INTEGER,
+  response_headers TEXT NOT NULL DEFAULT '{}',
+  response_body   TEXT NOT NULL DEFAULT '',
+  is_favorite     INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_http_requests_created ON http_requests(created_at DESC);
 """
 
 

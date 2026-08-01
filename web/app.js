@@ -377,7 +377,7 @@ async function renderLogs(selectedDate = new Date()) {
 }
 
 function renderTools() {
-  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">DEVELOPER TOOLKIT</div><h2>开发工具</h2><p>常用数据处理工具在本地运行，不会上传内容。</p></div><span class="tool-local-badge">仅本地处理</span></div><div class="tool-tabs" role="tablist"><button class="tool-tab" data-tool-tab="json">JSON</button><button class="tool-tab" data-tool-tab="yaml">JSON ↔ YAML</button><button class="tool-tab" data-tool-tab="base64">Base64</button><button class="tool-tab" data-tool-tab="url">URL 编解码</button><button class="tool-tab" data-tool-tab="timestamp">时间戳</button><button class="tool-tab" data-tool-tab="jwt">JWT</button><button class="tool-tab" data-tool-tab="regex">正则测试</button></div><section id="tool-panel" class="tool-panel"></section>`;
+  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">DEVELOPER TOOLKIT</div><h2>开发工具</h2><p>常用数据处理工具在本地运行，不会上传内容。</p></div><span class="tool-local-badge">仅本地处理</span></div><div class="tool-tabs" role="tablist"><button class="tool-tab" data-tool-tab="json">JSON</button><button class="tool-tab" data-tool-tab="yaml">JSON ↔ YAML</button><button class="tool-tab" data-tool-tab="base64">Base64</button><button class="tool-tab" data-tool-tab="url">URL 编解码</button><button class="tool-tab" data-tool-tab="timestamp">时间戳</button><button class="tool-tab" data-tool-tab="jwt">JWT</button><button class="tool-tab" data-tool-tab="regex">正则测试</button><button class="tool-tab" data-tool-tab="http-client">接口测试</button></div><section id="tool-panel" class="tool-panel"></section>`;
   document.querySelectorAll("[data-tool-tab]").forEach((button) => button.addEventListener("click", () => {
     state.tool = button.dataset.toolTab;
     renderToolPanel();
@@ -397,6 +397,7 @@ function renderToolPanel() {
   if (state.tool === "yaml") bindYamlTool();
   if (state.tool === "timestamp") bindTimestampTool();
   if (state.tool === "jwt") bindJwtTool();
+  if (state.tool === "http-client") bindHttpClientTool();
 }
 
 function toolMarkup(tool) {
@@ -406,6 +407,7 @@ function toolMarkup(tool) {
   if (tool === "base64") return `<div class="tool-head"><div><h3>Base64 编解码</h3><p>适合处理 UTF-8 文本、配置片段和短令牌。</p></div><button class="secondary-button" data-tool-copy="base64-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="base64-input" rows="13" placeholder="输入要编码或解码的文本"></textarea></label><label class="tool-field">输出<textarea id="base64-output" rows="13" readonly placeholder="结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="base64-encode">编码</button><button class="secondary-button" id="base64-decode">解码</button><button class="secondary-button" id="base64-clear">清空</button></div>`;
   if (tool === "url") return `<div class="tool-head"><div><h3>URL 编解码</h3><p>转换查询参数、路径片段和中文 URL。</p></div><button class="secondary-button" data-tool-copy="url-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="url-input" rows="13" placeholder="例如：个人工作台?tab=notes"></textarea></label><label class="tool-field">输出<textarea id="url-output" rows="13" readonly placeholder="结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="url-encode">编码</button><button class="secondary-button" id="url-decode">解码</button><button class="secondary-button" id="url-clear">清空</button></div>`;
   if (tool === "regex") return `<div class="tool-head"><div><h3>正则测试</h3><p>即时查看匹配结果和捕获组，支持 JavaScript 正则标志。</p></div></div><div class="regex-controls"><label class="tool-field">表达式<input id="regex-pattern" placeholder="例如：(?<name>\\w+)@\\w+\\.com"></label><label class="tool-field regex-flags">标志<input id="regex-flags" value="g" placeholder="gim"></label></div><label class="tool-field">测试文本<textarea id="regex-input" rows="8" placeholder="粘贴要测试的文本"></textarea></label><div class="tool-actions"><button class="primary-button" id="regex-run">运行匹配</button><button class="secondary-button" id="regex-clear">清空</button></div><div id="regex-output" class="regex-output"><div class="empty">输入表达式和文本后运行匹配。</div></div>`;
+  if (tool === "http-client") return httpClientMarkup();
   return `<div class="tool-head"><div><h3>JSON 格式化</h3><p>校验、格式化或压缩 JSON，错误位置会直接提示。</p></div><button class="secondary-button" data-tool-copy="json-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="json-input" rows="15" placeholder="粘贴 JSON 数据"></textarea></label><label class="tool-field">输出<textarea id="json-output" rows="15" readonly placeholder="格式化结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="json-format">格式化</button><button class="secondary-button" id="json-minify">压缩</button><button class="secondary-button" id="json-clear">清空</button></div>`;
 }
 
@@ -471,6 +473,291 @@ function bindToolCopy() {
     if (!value) { toast("没有可复制的结果", true); return; }
     try { await navigator.clipboard.writeText(value); toast("结果已复制"); } catch (_) { toast("复制失败，请手动选择结果", true); }
   }));
+}
+
+// ── HTTP Client (接口测试) ──
+
+const HTTP_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+
+function httpClientMarkup() {
+  return `<div class="http-client-layout">
+    <div class="http-client-main">
+      <div class="http-request-section">
+        <div class="http-url-bar">
+          <select id="http-method">${HTTP_METHODS.map((m) => `<option${m === "GET" ? " selected" : ""}>${m}</option>`).join("")}</select>
+          <input id="http-url" placeholder="https://api.example.com/endpoint" autocomplete="off">
+          <button id="http-send" class="primary-button">发送</button>
+        </div>
+        <div class="http-tabs" role="tablist">
+          <button class="http-tab active" data-http-tab="headers">请求头</button>
+          <button class="http-tab" data-http-tab="body">请求体</button>
+        </div>
+        <div id="http-headers-panel" class="http-headers-panel">
+          <div class="http-kv-rows" id="http-headers-rows">
+            <div class="http-kv-row"><input placeholder="Header" class="http-kv-key"><input placeholder="Value" class="http-kv-value"></div>
+          </div>
+          <button id="http-add-header" class="secondary-button small">+ 添加请求头</button>
+        </div>
+        <div id="http-body-panel" class="http-body-panel" hidden>
+          <div class="http-body-tabs" role="tablist">
+            <button class="http-body-tab active" data-http-body="json">JSON</button>
+            <button class="http-body-tab" data-http-body="form">表单</button>
+            <button class="http-body-tab" data-http-body="text">纯文本</button>
+          </div>
+          <textarea id="http-body" rows="8" placeholder='{"key": "value"}'></textarea>
+          <div class="http-body-actions"><button id="http-body-format" class="secondary-button small">格式化</button></div>
+        </div>
+      </div>
+      <div class="http-response-section">
+        <div class="http-response-head">
+          <span id="http-response-status" class="http-response-status"></span>
+          <span id="http-response-time" class="http-response-time"></span>
+          <button id="http-response-copy" class="secondary-button small" title="复制响应体">复制</button>
+        </div>
+        <div class="http-response-tabs" role="tablist">
+          <button class="http-response-tab active" data-http-res-tab="body">响应体</button>
+          <button class="http-response-tab" data-http-res-tab="res-headers">响应头</button>
+        </div>
+        <div id="http-response-body-panel">
+          <pre id="http-response-body" class="http-response-body"></pre>
+        </div>
+        <div id="http-response-headers-panel" hidden>
+          <pre id="http-response-headers" class="http-response-body"></pre>
+        </div>
+      </div>
+    </div>
+    <div class="http-history-sidebar">
+      <div class="http-history-head">
+        <h4>历史记录</h4>
+        <button id="http-history-refresh" class="icon-button" title="刷新">↻</button>
+      </div>
+      <div id="http-history-list" class="http-history-list">
+        <div class="empty">暂无记录</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function bindHttpClientTool() {
+  let _currentResponse = null;
+  const httpBodyTab = "json";
+
+  // 请求体模式切换
+  let _httpBodyMode = "json";
+  document.querySelectorAll("[data-http-body]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      _httpBodyMode = btn.dataset.httpBody;
+      document.querySelectorAll("[data-http-body]").forEach((b) => b.classList.toggle("active", b.dataset.httpBody === _httpBodyMode));
+      updateBodyPlaceholder(_httpBodyMode);
+    });
+  });
+
+  function updateBodyPlaceholder(mode) {
+    const body = $("#http-body");
+    if (!body) return;
+    if (mode === "json") body.placeholder = '{"key": "value"}';
+    else if (mode === "form") body.placeholder = "key1=value1\nkey2=value2";
+    else body.placeholder = "纯文本请求体";
+  }
+
+  // 格式化 JSON body
+  $("#http-body-format")?.addEventListener("click", () => {
+    const body = $("#http-body");
+    try { body.value = JSON.stringify(JSON.parse(body.value), null, 2); } catch (_) { toast("JSON 格式不正确", true); }
+  });
+
+  // 请求头模式切换
+  document.querySelectorAll("[data-http-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("[data-http-tab]").forEach((b) => b.classList.toggle("active", b.dataset.httpTab === btn.dataset.httpTab));
+      const hash = $("#http-headers-panel"); const bab = $("#http-body-panel");
+      if (btn.dataset.httpTab === "headers") { if (hash) hash.hidden = false; if (bab) bab.hidden = true; }
+      else { if (hash) hash.hidden = true; if (bab) bab.hidden = false; }
+    });
+  });
+
+  // 响应标签切换
+  document.querySelectorAll("[data-http-res-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("[data-http-res-tab]").forEach((b) => b.classList.toggle("active", b.dataset.httpResTab === btn.dataset.httpResTab));
+      const bpn = $("#http-response-body-panel"); const hpn = $("#http-response-headers-panel");
+      if (btn.dataset.httpResTab === "body") { if (bpn) bpn.hidden = false; if (hpn) hpn.hidden = true; }
+      else { if (bpn) bpn.hidden = true; if (hpn) hpn.hidden = false; }
+    });
+  });
+
+  // 添加请求头行
+  $("#http-add-header")?.addEventListener("click", () => {
+    const rows = $("#http-headers-rows");
+    const row = document.createElement("div");
+    row.className = "http-kv-row";
+    row.innerHTML = '<input placeholder="Header" class="http-kv-key"><input placeholder="Value" class="http-kv-value"><button class="http-kv-remove" title="移除">×</button>';
+    row.querySelector(".http-kv-remove").addEventListener("click", () => row.remove());
+    rows.appendChild(row);
+  });
+
+  // 已有的移除按钮绑定
+  document.querySelectorAll("#http-headers-rows .http-kv-remove")?.forEach((btn) => btn.addEventListener("click", (e) => e.currentTarget.parentElement.remove()));
+
+  // 发送请求
+  async function sendRequest() {
+    const url = $("#http-url").value.trim();
+    const method = $("#http-method").value;
+    if (!url) { toast("请输入 URL", true); return; }
+
+    // 收集请求头
+    const headers = [];
+    document.querySelectorAll("#http-headers-rows .http-kv-row").forEach((row) => {
+      const k = row.querySelector(".http-kv-key").value.trim();
+      const v = row.querySelector(".http-kv-value").value.trim();
+      if (k) headers.push({ key: k, value: v });
+    });
+
+    const body = $("#http-body")?.value || "";
+
+    const sendBtn = $("#http-send");
+    sendBtn.disabled = true;
+    sendBtn.textContent = "发送中…";
+
+    // 清空上一次响应
+    const stEl = $("#http-response-status"); if (stEl) stEl.textContent = ""; stEl.className = "http-response-status";
+    const tmEl = $("#http-response-time"); if (tmEl) tmEl.textContent = "";
+    const rbEl = $("#http-response-body"); if (rbEl) rbEl.textContent = "";
+    const rhEl = $("#http-response-headers"); if (rhEl) rhEl.textContent = "";
+
+    try {
+      const result = await api("/api/http-client/send", {
+        method: "POST",
+        body: JSON.stringify({ method, url, headers, body, content_type: _httpBodyMode }),
+      });
+
+      _currentResponse = result;
+
+      if (result.ok) {
+        const s = Number(result.status || 0);
+        const cls = s >= 200 && s < 300 ? "green" : s >= 400 ? "red" : "orange";
+        if (stEl) { stEl.innerHTML = `<span class="http-status-badge ${cls}">${s}</span>`; }
+        if (tmEl) tmEl.textContent = `${result.time_ms}ms`;
+        if (rbEl) rbEl.textContent = result.body;
+        if (rhEl) rhEl.textContent = JSON.stringify(result.headers, null, 2);
+      } else {
+        if (stEl) { stEl.innerHTML = `<span class="http-status-badge red">错误</span>`; }
+        if (tmEl) tmEl.textContent = "";
+        if (rbEl) rbEl.textContent = result.error || "请求失败";
+        if (rhEl) rhEl.textContent = "";
+      }
+    } catch (err) {
+      if (stEl) { stEl.innerHTML = `<span class="http-status-badge red">错误</span>`; }
+      if (rbEl) rbEl.textContent = err.message;
+    } finally {
+      sendBtn.disabled = false;
+      sendBtn.textContent = "发送";
+    }
+
+    // 刷新历史
+    loadHttpHistory();
+  }
+
+  $("#http-send")?.addEventListener("click", sendRequest);
+  $("#http-url")?.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendRequest(); });
+
+  // 复制响应
+  $("#http-response-copy")?.addEventListener("click", async () => {
+    const body = $("#http-response-body").textContent;
+    if (!body) { toast("没有可复制的响应", true); return; }
+    try { await navigator.clipboard.writeText(body); toast("响应已复制"); } catch (_) { toast("复制失败", true); }
+  });
+
+  // 加载历史
+  async function loadHttpHistory() {
+    const list = $("#http-history-list");
+    if (!list) return;
+    try {
+      const data = await api("/api/http-client/history?limit=50");
+      const items = data.items || [];
+      if (!items.length) { list.innerHTML = '<div class="empty">暂无记录</div>'; return; }
+      list.innerHTML = items.map((item) => {
+        const s = Number(item.response_status || 0);
+        const cls = s >= 200 && s < 300 ? "green" : s >= 400 ? "red" : "orange";
+        const starIcon = item.is_favorite ? "★" : "☆";
+        const timeStr = item.created_at ? new Date(item.created_at).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+        return `<div class="http-history-item" data-id="${item.id}">
+          <div class="http-history-main">
+            <span class="http-method-badge method-${item.method.toLowerCase()}">${item.method}</span>
+            <span class="http-history-status ${cls}">${s || "—"}</span>
+            <span class="http-history-url" title="${escapeHtml(item.url)}">${escapeHtml(truncateUrl(item.url))}</span>
+          </div>
+          <div class="http-history-meta">
+            <span>${timeStr}</span>
+            <button class="http-history-star icon-button" data-star-id="${item.id}" title="收藏">${starIcon}</button>
+            <button class="http-history-del icon-button" data-del-id="${item.id}" title="删除">×</button>
+          </div>
+        </div>`;
+      }).join("");
+
+      // 绑定历史项点击恢复
+      list.querySelectorAll(".http-history-main").forEach((main) => {
+        main.addEventListener("click", () => {
+          const id = main.parentElement.dataset.id;
+          restoreFromHistory(items.find((i) => String(i.id) === id));
+        });
+      });
+
+      // 绑定收藏
+      list.querySelectorAll(".http-history-star").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          await api(`/api/http-client/history/${btn.dataset.starId}/star`, { method: "PUT" });
+          loadHttpHistory();
+        });
+      });
+
+      // 绑定删除
+      list.querySelectorAll(".http-history-del").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (!confirm("删除这条记录？")) return;
+          await api(`/api/http-client/history/${btn.dataset.delId}`, { method: "DELETE" });
+          loadHttpHistory();
+        });
+      });
+    } catch (_) { list.innerHTML = '<div class="empty">加载失败</div>'; }
+  }
+
+  function restoreFromHistory(item) {
+    if (!item) return;
+    $("#http-url").value = item.url;
+    $("#http-method").value = item.method;
+    if (item.content_type) {
+      _httpBodyMode = item.content_type;
+      document.querySelectorAll("[data-http-body]").forEach((b) => b.classList.toggle("active", b.dataset.httpBody === _httpBodyMode));
+    }
+    if (item.body) {
+      const bt = $("#http-body"); if (bt) bt.value = item.body;
+      const bpn = $("#http-body-panel"); if (bpn) bpn.hidden = false;
+      const hpn = $("#http-headers-panel"); if (hpn) hpn.hidden = true;
+      document.querySelectorAll("[data-http-tab]").forEach((b) => b.classList.toggle("active", b.dataset.httpTab === "body"));
+    }
+    // 恢复请求头
+    if (item.headers && item.headers.length) {
+      const rows = $("#http-headers-rows"); rows.innerHTML = "";
+      item.headers.forEach((h) => {
+        const row = document.createElement("div");
+        row.className = "http-kv-row";
+        row.innerHTML = `<input placeholder="Header" class="http-kv-key" value="${escapeHtml(h.key)}"><input placeholder="Value" class="http-kv-value" value="${escapeHtml(h.value)}"><button class="http-kv-remove" title="移除">×</button>`;
+        row.querySelector(".http-kv-remove").addEventListener("click", () => row.remove());
+        rows.appendChild(row);
+      });
+    }
+  }
+
+  function truncateUrl(url) {
+    if (!url) return "";
+    return url.length > 50 ? url.substring(0, 50) + "…" : url;
+  }
+
+  loadHttpHistory();
+  $("#http-history-refresh")?.addEventListener("click", loadHttpHistory);
 }
 
 async function renderSettings() {
