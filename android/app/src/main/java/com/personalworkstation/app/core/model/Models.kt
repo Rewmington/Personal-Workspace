@@ -189,3 +189,11 @@ data class DevLogUpdateRequest(val content: String = "", val mood: String = "", 
 data class DevLogCalendarDay(val date: String, val length: Int = 0)
 @Serializable
 data class DevLogStreakResponse(val streak: Int = 0)
+@Serializable
+data class ClipboardItem(val id: Int, val content: String, val source: String = "manual", val created_at: String = "")
+@Serializable
+data class ClipboardCreateRequest(val content: String, val source: String = "manual")
+@Serializable
+data class ClipboardListResponse(val items: List<ClipboardItem> = emptyList())
+@Serializable
+data class ClipboardOkResponse(val ok: Boolean = false)

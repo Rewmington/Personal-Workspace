@@ -24,6 +24,10 @@ import com.personalworkstation.app.core.model.DevLog
 import com.personalworkstation.app.core.model.DevLogCalendarDay
 import com.personalworkstation.app.core.model.DevLogUpdateRequest
 import com.personalworkstation.app.core.model.DevLogStreakResponse
+import com.personalworkstation.app.core.model.ClipboardItem
+import com.personalworkstation.app.core.model.ClipboardCreateRequest
+import com.personalworkstation.app.core.model.ClipboardListResponse
+import com.personalworkstation.app.core.model.ClipboardOkResponse
 import com.personalworkstation.app.core.model.Task
 import com.personalworkstation.app.core.model.TaskCreateRequest
 import com.personalworkstation.app.core.model.TaskUpdateRequest
@@ -146,6 +150,21 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
     suspend fun deleteTask(taskId: Int) {
         client.delete("$baseUrl/api/tasks/$taskId")
     }
+
+    suspend fun clipboardList(limit: Int = 20): ClipboardListResponse =
+        client.get("$baseUrl/api/clipboard?limit=$limit").body()
+
+    suspend fun clipboardAdd(request: ClipboardCreateRequest): ClipboardOkResponse =
+        client.post("$baseUrl/api/clipboard") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+
+    suspend fun clipboardDelete(itemId: Int): ClipboardOkResponse =
+        client.delete("$baseUrl/api/clipboard/$itemId").body()
+
+    suspend fun clipboardClear(): ClipboardOkResponse =
+        client.delete("$baseUrl/api/clipboard").body()
 
     suspend fun snippets(query: String? = null): List<Snippet> = client.get("$baseUrl/api/snippets" + (query?.takeIf { it.isNotBlank() }?.let { "?q=" + java.net.URLEncoder.encode(it, "UTF-8") } ?: "")).body()
     suspend fun createSnippet(request: SnippetCreateRequest): Snippet = client.post("$baseUrl/api/snippets") { contentType(ContentType.Application.Json); setBody(request) }.body()

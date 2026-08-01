@@ -118,6 +118,13 @@ CREATE TABLE IF NOT EXISTS http_requests (
   created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_http_requests_created ON http_requests(created_at DESC);
+CREATE TABLE IF NOT EXISTS clipboard_history (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  content    TEXT NOT NULL,
+  source     TEXT NOT NULL DEFAULT 'manual',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_clipboard_created ON clipboard_history(created_at DESC);
 """
 
 

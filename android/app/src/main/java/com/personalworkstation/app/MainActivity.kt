@@ -2,14 +2,14 @@ package com.personalworkstation.app
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Bundle
-import android.provider.CalendarContract
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -118,6 +118,8 @@ import com.personalworkstation.app.core.model.DevLog
 import com.personalworkstation.app.core.model.DevLogCalendarDay
 import com.personalworkstation.app.core.model.DevLogStreakResponse
 import com.personalworkstation.app.core.model.DevLogUpdateRequest
+import com.personalworkstation.app.core.model.ClipboardItem
+import com.personalworkstation.app.core.model.ClipboardCreateRequest
 import com.personalworkstation.app.core.network.ApiClient
 import com.google.zxing.integration.android.IntentIntegrator
 import io.noties.markwon.Markwon
@@ -376,6 +378,7 @@ private fun DashboardScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var showFocus by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
+    var showClipboard by remember { mutableStateOf(false) }
     LaunchedEffect(client, githubSync, realtimeRevision) {
         try {
             summary = client.summary()
@@ -439,6 +442,7 @@ private fun DashboardScreen(
                 onNavigate = onNavigate,
                 onOpenFocus = { showFocus = true },
                 onOpenStats = { showStats = true },
+                onOpenClipboard = { showClipboard = true },
             )
         }
     }
@@ -451,6 +455,9 @@ private fun DashboardScreen(
     }
     if (showStats) {
         StatsDialog(summary, onDismiss = { showStats = false })
+    }
+    if (showClipboard) {
+        ClipboardScreen(client = client, onDismiss = { showClipboard = false })
     }
 }
 
@@ -599,19 +606,12 @@ private fun QuickTools(
     onNavigate: (Int) -> Unit,
     onOpenFocus: () -> Unit,
     onOpenStats: () -> Unit,
+    onOpenClipboard: () -> Unit,
 ) {
-    val context = LocalContext.current
-    fun openCalendar() {
-        try {
-            context.startActivity(Intent(Intent.ACTION_VIEW).setData(CalendarContract.CONTENT_URI))
-        } catch (_: Exception) {
-            Toast.makeText(context, "设备上没有可用的日历应用", Toast.LENGTH_SHORT).show()
-        }
-    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionTitle("快捷工具")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Tool("日程", "◷", Modifier.weight(1f), ::openCalendar)
+            Tool("剪贴板", "◷", Modifier.weight(1f), onOpenClipboard)
             Tool("专注", "◎", Modifier.weight(1f), onOpenFocus)
             Tool("备忘录", "▤", Modifier.weight(1f)) { onNavigate(1) }
         }
@@ -2541,6 +2541,134 @@ private fun ScratchpadBottomSheet(onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.End,
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ClipboardScreen(client: ApiClient, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf<List<ClipboardItem>>(emptyList()) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    suspend fun refresh() {
+        try { items = client.clipboardList().items } catch (_: Exception) {}
+    }
+    LaunchedEffect(Unit) { refresh() }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = panel,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("剪贴板", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Row {
+                    TextButton(onClick = {
+                        scope.launch {
+                            try { client.clipboardClear(); refresh() } catch (_: Exception) {}
+                        }
+                    }) { Text("清空", color = errorColor, fontSize = 12.sp) }
+                    TextButton(onClick = onDismiss) { Text("关闭", color = greenLight, fontSize = 12.sp) }
+                }
+            }
+            Text("最近 20 条 · " + items.size + " 条记录", fontSize = 12.sp, color = muted, modifier = Modifier.padding(bottom = 10.dp))
+
+            if (items.isEmpty()) {
+                Text("暂无剪贴板记录", fontSize = 13.sp, color = dim, modifier = Modifier.padding(vertical = 20.dp))
+            } else {
+                LazyColumn(Modifier.heightIn(max = 400.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(items, key = { it.id }) { item ->
+                        Card(
+                            Modifier.fillMaxWidth().clickable {
+                                val clip = ClipData.newPlainText("clip", item.content)
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(clip)
+                                Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = CardDefaults.cardColors(containerColor = Color(0x0AFFFFFF)),
+                            shape = RoundedCornerShape(10.dp),
+                        ) {
+                            Row(
+                                Modifier.padding(12.dp).fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                                    Text(
+                                        item.content.take(180),
+                                        fontSize = 13.sp,
+                                        color = Color(0xFFD4D4D4),
+                                        lineHeight = 18.sp,
+                                        maxLines = 4,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        if (item.created_at.isNotBlank()) item.created_at.replace("T", " ").take(16) else "",
+                                        fontSize = 10.sp,
+                                        color = dim,
+                                    )
+                                }
+                                Text(
+                                    "✕",
+                                    fontSize = 14.sp,
+                                    color = dim,
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clickable {
+                                            scope.launch {
+                                                try { client.clipboardDelete(item.id); refresh() } catch (_: Exception) {}
+                                            }
+                                        }
+                                        .padding(start = 4.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // 从系统剪贴板添加
+            Button(
+                onClick = {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = cm.primaryClip
+                    if (clip != null && clip.itemCount > 0) {
+                        val text = clip.getItemAt(0).text?.toString().orEmpty()
+                        if (text.isNotBlank()) {
+                            scope.launch {
+                                try {
+                                    client.clipboardAdd(ClipboardCreateRequest(text, "system"))
+                                    refresh()
+                                    Toast.makeText(context, "已添加", Toast.LENGTH_SHORT).show()
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "添加失败", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        } else {
+                            Toast.makeText(context, "剪贴板为空或不是文本", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(context, "剪贴板为空", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = green),
+                shape = RoundedCornerShape(10.dp),
+            ) {
+                Text("📋 从系统剪贴板粘贴", fontSize = 14.sp)
+            }
         }
     }
 }

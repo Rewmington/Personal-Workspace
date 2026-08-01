@@ -377,7 +377,7 @@ async function renderLogs(selectedDate = new Date()) {
 }
 
 function renderTools() {
-  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">DEVELOPER TOOLKIT</div><h2>开发工具</h2><p>常用数据处理工具在本地运行，不会上传内容。</p></div><span class="tool-local-badge">仅本地处理</span></div><div class="tool-tabs" role="tablist"><button class="tool-tab" data-tool-tab="json">JSON</button><button class="tool-tab" data-tool-tab="yaml">JSON ↔ YAML</button><button class="tool-tab" data-tool-tab="base64">Base64</button><button class="tool-tab" data-tool-tab="url">URL 编解码</button><button class="tool-tab" data-tool-tab="timestamp">时间戳</button><button class="tool-tab" data-tool-tab="jwt">JWT</button><button class="tool-tab" data-tool-tab="regex">正则测试</button><button class="tool-tab" data-tool-tab="http-client">接口测试</button></div><section id="tool-panel" class="tool-panel"></section>`;
+  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">DEVELOPER TOOLKIT</div><h2>开发工具</h2><p>常用数据处理工具在本地运行，不会上传内容。</p></div><span class="tool-local-badge">仅本地处理</span></div><div class="tool-tabs" role="tablist"><button class="tool-tab" data-tool-tab="json">JSON</button><button class="tool-tab" data-tool-tab="yaml">JSON ↔ YAML</button><button class="tool-tab" data-tool-tab="base64">Base64</button><button class="tool-tab" data-tool-tab="url">URL 编解码</button><button class="tool-tab" data-tool-tab="timestamp">时间戳</button><button class="tool-tab" data-tool-tab="jwt">JWT</button><button class="tool-tab" data-tool-tab="regex">正则测试</button><button class="tool-tab" data-tool-tab="http-client">接口测试</button><button class="tool-tab" data-tool-tab="clipboard">剪贴板</button></div><section id="tool-panel" class="tool-panel"></section>`;
   document.querySelectorAll("[data-tool-tab]").forEach((button) => button.addEventListener("click", () => {
     state.tool = button.dataset.toolTab;
     renderToolPanel();
@@ -398,6 +398,7 @@ function renderToolPanel() {
   if (state.tool === "timestamp") bindTimestampTool();
   if (state.tool === "jwt") bindJwtTool();
   if (state.tool === "http-client") bindHttpClientTool();
+  if (state.tool === "clipboard") bindClipboardTool();
 }
 
 function toolMarkup(tool) {
@@ -408,6 +409,7 @@ function toolMarkup(tool) {
   if (tool === "url") return `<div class="tool-head"><div><h3>URL 编解码</h3><p>转换查询参数、路径片段和中文 URL。</p></div><button class="secondary-button" data-tool-copy="url-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="url-input" rows="13" placeholder="例如：个人工作台?tab=notes"></textarea></label><label class="tool-field">输出<textarea id="url-output" rows="13" readonly placeholder="结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="url-encode">编码</button><button class="secondary-button" id="url-decode">解码</button><button class="secondary-button" id="url-clear">清空</button></div>`;
   if (tool === "regex") return `<div class="tool-head"><div><h3>正则测试</h3><p>即时查看匹配结果和捕获组，支持 JavaScript 正则标志。</p></div></div><div class="regex-controls"><label class="tool-field">表达式<input id="regex-pattern" placeholder="例如：(?<name>\\w+)@\\w+\\.com"></label><label class="tool-field regex-flags">标志<input id="regex-flags" value="g" placeholder="gim"></label></div><label class="tool-field">测试文本<textarea id="regex-input" rows="8" placeholder="粘贴要测试的文本"></textarea></label><div class="tool-actions"><button class="primary-button" id="regex-run">运行匹配</button><button class="secondary-button" id="regex-clear">清空</button></div><div id="regex-output" class="regex-output"><div class="empty">输入表达式和文本后运行匹配。</div></div>`;
   if (tool === "http-client") return httpClientMarkup();
+  if (tool === "clipboard") return clipboardMarkup();
   return `<div class="tool-head"><div><h3>JSON 格式化</h3><p>校验、格式化或压缩 JSON，错误位置会直接提示。</p></div><button class="secondary-button" data-tool-copy="json-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="json-input" rows="15" placeholder="粘贴 JSON 数据"></textarea></label><label class="tool-field">输出<textarea id="json-output" rows="15" readonly placeholder="格式化结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="json-format">格式化</button><button class="secondary-button" id="json-minify">压缩</button><button class="secondary-button" id="json-clear">清空</button></div>`;
 }
 
@@ -758,6 +760,93 @@ function bindHttpClientTool() {
 
   loadHttpHistory();
   $("#http-history-refresh")?.addEventListener("click", loadHttpHistory);
+}
+
+// ── Clipboard (剪贴板) ──
+
+function clipboardMarkup() {
+  return `<div class="clipboard-section">
+    <div class="tool-head"><div><h3>剪贴板</h3><p>最近 20 条剪贴板记录，点击复制，跨端共享。</p></div><button class="secondary-button" id="clipboard-clear">清空</button></div>
+    <div class="clipboard-bar">
+      <textarea id="clipboard-input" rows="2" placeholder="输入或 Ctrl+V 粘贴文本..."></textarea>
+      <button id="clipboard-add" class="primary-button">添加</button>
+      <button id="clipboard-paste" class="secondary-button">从系统粘贴</button>
+    </div>
+    <div id="clipboard-list" class="clipboard-list"><div class="empty">暂无记录</div></div>
+  </div>`;
+}
+
+function bindClipboardTool() {
+  async function refresh() {
+    const list = $("#clipboard-list");
+    if (!list) return;
+    try {
+      const data = await api("/api/clipboard?limit=20");
+      const items = data.items || [];
+      if (!items.length) { list.innerHTML = '<div class="empty">暂无记录</div>'; return; }
+      list.innerHTML = items.map((item) => {
+        const timeStr = item.created_at ? item.created_at.replace("T", " ").substring(0, 16) : "";
+        return `<div class="clipboard-item" data-id="${item.id}">
+          <div class="clipboard-item-content" title="点击复制">
+            <pre>${escapeHtml(item.content.length > 200 ? item.content.substring(0, 200) + "…" : item.content)}</pre>
+          </div>
+          <div class="clipboard-item-meta">
+            <span>${timeStr}</span>
+            <button class="clipboard-del" data-del-id="${item.id}" title="删除">×</button>
+          </div>
+        </div>`;
+      }).join("");
+
+      // 点击复制
+      list.querySelectorAll(".clipboard-item-content").forEach((el) => {
+        el.addEventListener("click", async () => {
+          const item = items.find((i) => String(i.id) === el.parentElement.dataset.id);
+          if (!item) return;
+          try { await navigator.clipboard.writeText(item.content); toast("已复制"); } catch (_) { toast("复制失败", true); }
+        });
+      });
+
+      // 删除
+      list.querySelectorAll(".clipboard-del").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          await api(`/api/clipboard/${btn.dataset.delId}`, { method: "DELETE" });
+          refresh();
+        });
+      });
+    } catch (_) { list.innerHTML = '<div class="empty">加载失败</div>'; }
+  }
+
+  // 添加文本
+  async function addItem(text) {
+    const t = text.trim();
+    if (!t) { toast("内容不能为空", true); return; }
+    try {
+      await api("/api/clipboard", { method: "POST", body: JSON.stringify({ content: t, source: "manual" }) });
+      $("#clipboard-input").value = "";
+      refresh();
+      toast("已添加");
+    } catch (_) { toast("添加失败", true); }
+  }
+
+  $("#clipboard-add")?.addEventListener("click", () => addItem($("#clipboard-input").value));
+  $("#clipboard-input")?.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) addItem($("#clipboard-input").value); });
+
+  // 从系统剪贴板粘贴
+  $("#clipboard-paste")?.addEventListener("click", async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) { $("#clipboard-input").value = text; addItem(text); } else { toast("剪贴板为空", true); }
+    } catch (_) { toast("无法读取剪贴板，请手动粘贴", true); }
+  });
+
+  // 清空
+  $("#clipboard-clear")?.addEventListener("click", async () => {
+    if (!confirm("清空所有剪贴板记录？")) return;
+    try { await api("/api/clipboard", { method: "DELETE" }); refresh(); toast("已清空"); } catch (_) { toast("清空失败", true); }
+  });
+
+  refresh();
 }
 
 async function renderSettings() {
