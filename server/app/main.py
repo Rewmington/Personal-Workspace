@@ -44,13 +44,18 @@ async def _start_discovery_services() -> None:
     """延后启动网络发现服务，避免阻塞服务 readiness。"""
     await asyncio.sleep(0.3)
     try:
-        get_mdns_broadcaster().register(
-            host=settings.host,
-            port=settings.port,
-            device_name="个人工作台",
+        # mDNS 在已有事件循环里同步调用会触发 EventLoopBlocked，放到线程里执行
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: get_mdns_broadcaster().register(
+                host=settings.host,
+                port=settings.port,
+                device_name="个人工作台",
+            ),
         )
     except Exception:
-        logging.getLogger("mdns").warning("mDNS 广播启动失败，局域网自动发现将不可用", exc_info=True)
+        logging.getLogger("mdns").debug("mDNS 广播启动失败，局域网自动发现将不可用", exc_info=True)
     get_udp_discovery().start(
         host=settings.host,
         port=settings.port,
