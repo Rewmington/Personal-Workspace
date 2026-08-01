@@ -40,11 +40,9 @@ async def _github_refresh_loop() -> None:
         await asyncio.sleep(interval * 60)
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    global _github_refresh_task
-    init_db()
-    # 启动 mDNS 广播
+async def _start_discovery_services() -> None:
+    """延后启动网络发现服务，避免阻塞服务 readiness。"""
+    await asyncio.sleep(0.3)
     try:
         get_mdns_broadcaster().register(
             host=settings.host,
@@ -53,12 +51,19 @@ async def lifespan(_: FastAPI):
         )
     except Exception:
         logging.getLogger("mdns").warning("mDNS 广播启动失败，局域网自动发现将不可用", exc_info=True)
-    # 启动 UDP 广播发现（NsdManager 不可用时的回退）
     get_udp_discovery().start(
         host=settings.host,
         port=settings.port,
         device_name=settings.display_name or "个人工作台",
     )
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    global _github_refresh_task
+    init_db()
+    # 网络发现服务延后后台启动，不阻塞 /api/health 就绪
+    asyncio.create_task(_start_discovery_services())
     # 启动 GitHub 后台定时刷新
     _github_refresh_task = asyncio.create_task(_github_refresh_loop())
     yield

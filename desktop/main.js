@@ -110,7 +110,7 @@ async function waitForServer(timeoutMs = 20000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     if (await requestHealth()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return false;
 }
@@ -234,8 +234,24 @@ function createWindow() {
     mainWindow.focus();
   });
 
-  // 先加载空白页（秒开），等服务器就绪后再 navigate 到应用页
-  mainWindow.loadURL("data:text/html,<html><body style='background:#181818'></body></html>");
+  // 先显示启动页（秒开），等服务器就绪后再加载应用页
+  mainWindow.loadURL(`data:text/html,${encodeURIComponent(
+    `<!DOCTYPE html>
+<html style="margin:0;height:100%">
+<head><meta charset="UTF-8"><style>
+body{margin:0;height:100%;background:#181818;color:#999;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;user-select:none;-webkit-user-select:none}
+.spinner{width:36px;height:36px;border:3px solid #333;border-top-color:#7c3aed;border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.status{font-size:13px;letter-spacing:.02em}
+.brand{font-size:15px;font-weight:600;color:#bbb}
+</style></head>
+<body>
+<div class="brand">个人工作台</div>
+<div class="spinner"></div>
+<div class="status">正在启动本地服务…</div>
+</body>
+</html>`
+  )}`);
 
   // 关闭窗口行为：如果设置了最小化到托盘，则隐藏而不是退出
   mainWindow.on("close", (event) => {

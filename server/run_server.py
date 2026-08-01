@@ -38,7 +38,7 @@ def main() -> int:
     print(f"个人工作台服务启动: http://{local_ip()}:{settings.port}")
     print("健康检查: /api/health，接口文档: /docs，WebSocket: /ws")
     try:
-        uvicorn.run(app, host=settings.host, port=settings.port, reload=False)
+        uvicorn.run(app, host=settings.host, port=settings.port, reload=False, access_log=False)
     except OSError as exc:
         print(f"启动失败：无法监听端口 {settings.port}。\n{exc}")
         print("请关闭已运行的服务，或设置 WORKSTATION_PORT 使用其他端口。")

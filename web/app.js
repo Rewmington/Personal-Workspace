@@ -20,13 +20,18 @@ if (window.workstationDesktop) {
   setTimeout(() => {
     const desktop = window.workstationDesktop;
     const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+    bind("btn-close", () => desktop.closeWindow());
     bind("btn-minimize", () => desktop.minimizeWindow());
     bind("btn-maximize", () => desktop.maximizeWindow());
-    bind("btn-close", () => desktop.closeWindow());
 
-    // 双击标题栏切换最大化
-    const drag = document.querySelector(".title-bar-drag");
-    if (drag) drag.addEventListener("dblclick", () => desktop.maximizeWindow());
+    // 双击标题栏空白处（非按钮）切换最大化
+    const bar = document.querySelector(".title-bar");
+    if (bar) {
+      bar.addEventListener("dblclick", (e) => {
+        if (e.target.closest(".title-bar-controls")) return;
+        desktop.maximizeWindow();
+      });
+    }
   });
 }
 
