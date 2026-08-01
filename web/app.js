@@ -14,6 +14,22 @@ const state = {
 
 if (window.workstationDesktop) state.baseUrl = window.location.origin;
 
+// ── Electron 桌面环境：激活自定义标题栏 + 窗口控制 ──
+if (window.workstationDesktop) {
+  document.body.classList.add("is-desktop");
+  setTimeout(() => {
+    const desktop = window.workstationDesktop;
+    const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+    bind("btn-minimize", () => desktop.minimizeWindow());
+    bind("btn-maximize", () => desktop.maximizeWindow());
+    bind("btn-close", () => desktop.closeWindow());
+
+    // 双击标题栏切换最大化
+    const drag = document.querySelector(".title-bar-drag");
+    if (drag) drag.addEventListener("dblclick", () => desktop.maximizeWindow());
+  });
+}
+
 const $ = (selector) => document.querySelector(selector);
 const content = $("#content");
 let realtimeSocket = null;

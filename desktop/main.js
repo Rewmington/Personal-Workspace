@@ -211,8 +211,9 @@ function createWindow() {
     height: 860,
     minWidth: 980,
     minHeight: 680,
+    frame: false,
     backgroundColor: "#181818",
-    autoHideMenuBar: true,
+    show: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -226,9 +227,15 @@ function createWindow() {
     }
     return { action: "allow" };
   });
-  mainWindow.webContents.session.clearCache().finally(() => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(`${localUrl()}/app/?v=${Date.now()}`);
+
+  // ready-to-show 防止白屏闪烁
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
+    mainWindow.focus();
   });
+
+  // 先加载空白页（秒开），等服务器就绪后再 navigate 到应用页
+  mainWindow.loadURL("data:text/html,<html><body style='background:#181818'></body></html>");
 
   // 关闭窗口行为：如果设置了最小化到托盘，则隐藏而不是退出
   mainWindow.on("close", (event) => {
@@ -264,6 +271,17 @@ function registerIpc() {
     if (tray) createTray();
     return { minimizeToTray };
   });
+
+  // 自定义标题栏窗口控制
+  ipcMain.on("window:minimize", () => mainWindow?.minimize());
+  ipcMain.on("window:maximize", () => {
+    if (mainWindow?.isMaximized()) mainWindow.unmaximize();
+    else mainWindow?.maximize();
+  });
+  ipcMain.on("window:close", () => mainWindow?.close());
+  ipcMain.on("window:isMaximized", (event) => {
+    event.returnValue = mainWindow?.isMaximized() ?? false;
+  });
 }
 
 async function boot() {
@@ -271,6 +289,9 @@ async function boot() {
   serverConfig = readServerConfig();
   loadTraySettings();
   registerIpc();
+
+  // 先创建窗口（暗色背景，立即可见），避免白屏等待服务器
+  createWindow();
 
   const ready = await ensureServer();
   if (!ready) {
@@ -283,7 +304,8 @@ async function boot() {
     app.quit();
     return;
   }
-  createWindow();
+  // 服务就绪后加载应用页面
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(`${localUrl()}/app/`);
   createTray();
 }
 
