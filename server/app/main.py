@@ -95,6 +95,7 @@ app = FastAPI(
     title="Personal Workstation API",
     version="0.1.0",
     description="局域网个人工作台的任务、笔记、GitHub 和仪表盘服务",
+    redirect_slashes=False,
     lifespan=lifespan,
 )
 app.add_middleware(
