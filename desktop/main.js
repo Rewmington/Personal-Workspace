@@ -15,6 +15,8 @@ let ownsServer = false;
 let serverConfig = null;
 let shutdownStarted = false;
 let minimizeToTray = true;
+// 每次启动使用新的页面地址，避免 Chromium 复用旧的 index.html 缓存。
+const WEB_CACHE_BUSTER = Date.now().toString(36);
 
 function resourcePath(name) {
   return app.isPackaged ? path.join(process.resourcesPath, name) : path.resolve(__dirname, "..", name);
@@ -80,6 +82,10 @@ function healthHost() {
 
 function localUrl() {
   return `http://${healthHost()}:${serverConfig.port}`;
+}
+
+function appUrl() {
+  return `${localUrl()}/app/?v=${WEB_CACHE_BUSTER}`;
 }
 
 function networkUrls() {
@@ -163,7 +169,7 @@ async function restartServer() {
   await stopServer();
   startServer();
   const ready = await waitForServer();
-  if (ready && mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(`${localUrl()}/app/`);
+  if (ready && mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(appUrl());
   return ready;
 }
 
@@ -321,7 +327,7 @@ async function boot() {
     return;
   }
   // 服务就绪后加载应用页面
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(`${localUrl()}/app/`);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(appUrl());
   createTray();
 }
 

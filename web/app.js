@@ -425,7 +425,7 @@ function renderToolPanel() {
 function toolMarkup(tool) {
   if (tool === "yaml") return `<div class="tool-head"><div><h3>JSON 与 YAML</h3><p>轻量转换，使用浏览器内置 JSON 解析。</p></div></div><div class="tool-split"><label class="tool-field">输入<textarea id="yaml-input" rows="13" placeholder='JSON 或简单 YAML'></textarea></label><label class="tool-field">输出<textarea id="yaml-output" rows="13" readonly></textarea></label></div><div class="tool-actions"><button class="primary-button" id="yaml-to-json">YAML → JSON</button><button class="secondary-button" id="json-to-yaml">JSON → YAML</button></div>`;
   if (tool === "timestamp") return `<div class="tool-head"><div><h3>时间戳转换</h3><p>自动识别秒或毫秒时间戳。</p></div></div><div class="tool-split"><label class="tool-field">输入<input id="timestamp-input" placeholder="例如 1710000000 或 2026-01-01"></label><label class="tool-field">输出<textarea id="timestamp-output" rows="8" readonly></textarea></label></div><div class="tool-actions"><button class="primary-button" id="timestamp-run">转换</button></div>`;
-  if (tool === "jwt") return `<div class="tool-head"><div><h3>JWT 解析</h3><p>仅在本地解码 Header 和 Payload，不验证签名。</p></div></div><label class="tool-field">Token<textarea id="jwt-input" rows="5" placeholder="粘贴 JWT"></textarea></label><label class="tool-field">结果<textarea id="jwt-output" rows="8" readonly></textarea></label><div class="tool-actions"><button class="primary-button" id="jwt-run">解析</button></div>`;
+  if (tool === "jwt") return jwtToolMarkup();
   if (tool === "base64") return `<div class="tool-head"><div><h3>Base64 编解码</h3><p>适合处理 UTF-8 文本、配置片段和短令牌。</p></div><button class="secondary-button" data-tool-copy="base64-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="base64-input" rows="13" placeholder="输入要编码或解码的文本"></textarea></label><label class="tool-field">输出<textarea id="base64-output" rows="13" readonly placeholder="结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="base64-encode">编码</button><button class="secondary-button" id="base64-decode">解码</button><button class="secondary-button" id="base64-clear">清空</button></div>`;
   if (tool === "url") return `<div class="tool-head"><div><h3>URL 编解码</h3><p>转换查询参数、路径片段和中文 URL。</p></div><button class="secondary-button" data-tool-copy="url-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="url-input" rows="13" placeholder="例如：个人工作台?tab=notes"></textarea></label><label class="tool-field">输出<textarea id="url-output" rows="13" readonly placeholder="结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="url-encode">编码</button><button class="secondary-button" id="url-decode">解码</button><button class="secondary-button" id="url-clear">清空</button></div>`;
   if (tool === "regex") return `<div class="tool-head"><div><h3>正则测试</h3><p>即时查看匹配结果和捕获组，支持 JavaScript 正则标志。</p></div></div><div class="regex-controls"><label class="tool-field">表达式<input id="regex-pattern" placeholder="例如：(?<name>\\w+)@\\w+\\.com"></label><label class="tool-field regex-flags">标志<input id="regex-flags" value="g" placeholder="gim"></label></div><label class="tool-field">测试文本<textarea id="regex-input" rows="8" placeholder="粘贴要测试的文本"></textarea></label><div class="tool-actions"><button class="primary-button" id="regex-run">运行匹配</button><button class="secondary-button" id="regex-clear">清空</button></div><div id="regex-output" class="regex-output"><div class="empty">输入表达式和文本后运行匹配。</div></div>`;
@@ -434,9 +434,103 @@ function toolMarkup(tool) {
   return `<div class="tool-head"><div><h3>JSON 格式化</h3><p>校验、格式化或压缩 JSON，错误位置会直接提示。</p></div><button class="secondary-button" data-tool-copy="json-output">复制结果</button></div><div class="tool-split"><label class="tool-field">输入<textarea id="json-input" rows="15" placeholder="粘贴 JSON 数据"></textarea></label><label class="tool-field">输出<textarea id="json-output" rows="15" readonly placeholder="格式化结果会显示在这里"></textarea></label></div><div class="tool-actions"><button class="primary-button" id="json-format">格式化</button><button class="secondary-button" id="json-minify">压缩</button><button class="secondary-button" id="json-clear">清空</button></div>`;
 }
 
+function jwtToolMarkup() {
+  return `<section class="jwt-tool">
+    <div class="jwt-layout">
+      <label class="jwt-token-field">JWT Token<textarea id="jwt-input" rows="18" placeholder="粘贴 JWT Token"></textarea></label>
+      <div class="jwt-result-stack">
+        <section class="jwt-result-card"><h4>Header</h4><pre id="jwt-header-output">等待解析</pre></section>
+        <section class="jwt-result-card"><h4>Payload</h4><pre id="jwt-payload-output">等待解析</pre></section>
+        <section class="jwt-result-card"><h4>Signature</h4><pre id="jwt-signature-output">等待解析</pre></section>
+      </div>
+    </div>
+    <div class="jwt-actions">
+      <label class="jwt-secret-field">密钥（可选）<input id="jwt-secret" type="password" autocomplete="off" placeholder="仅在当前页面内存中使用"></label>
+      <div class="jwt-action-buttons"><button class="primary-button" id="jwt-run">解析并校验</button><button class="secondary-button" id="jwt-clear">清空</button></div>
+    </div>
+    <div id="jwt-status" class="jwt-status" role="status"></div>
+    <div class="jwt-reference"><h4>字段说明</h4><dl><dt>iss</dt><dd>签发者</dd><dt>sub</dt><dd>面向的用户</dd><dt>aud</dt><dd>接收 JWT 的一方</dd><dt>exp</dt><dd>过期时间，超过后 Token 不应继续使用</dd><dt>nbf</dt><dd>生效时间，早于此时间不可使用</dd><dt>iat</dt><dd>签发时间</dd><dt>jti</dt><dd>唯一标识，可用于防止 Token 重放</dd></dl></div>
+  </section>`;
+}
+
 function bindYamlTool() { const input=$("#yaml-input"), output=$("#yaml-output"); $("#json-to-yaml").onclick=()=>{ try { const value=JSON.parse(input.value); output.value=Object.entries(value).map(([k,v])=>`${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n"); } catch(e) { output.value=`解析失败：${e.message}`; } }; $("#yaml-to-json").onclick=()=>{ try { const object={}; input.value.split(/\r?\n/).forEach((line)=>{ const i=line.indexOf(":"); if(i>0) object[line.slice(0,i).trim()]=line.slice(i+1).trim(); }); output.value=JSON.stringify(object,null,2); } catch(e) { output.value=`解析失败：${e.message}`; } }; }
 function bindTimestampTool() { $("#timestamp-run").onclick=()=>{ const raw=$("#timestamp-input").value.trim(); const n=Number(raw); const d=Number.isFinite(n) && raw !== "" ? new Date(raw.length>10?n:n*1000) : new Date(raw); $("#timestamp-output").value=Number.isNaN(d.getTime())?"无法识别时间":`${d.toISOString()}\n${d.toLocaleString("zh-CN")}`; }; }
-function bindJwtTool() { $("#jwt-run").onclick=()=>{ try { const parts=$("#jwt-input").value.trim().split("."); if(parts.length<2) throw new Error("JWT 至少包含两段"); const decode=(x)=>JSON.stringify(JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(x.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0)))),null,2); $("#jwt-output").value=`Header:\n${decode(parts[0])}\n\nPayload:\n${decode(parts[1])}`; } catch(e) { $("#jwt-output").value=`解析失败：${e.message}`; } }; }
+function jwtBase64UrlBytes(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+  return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+}
+
+function decodeJwtPart(value) {
+  return JSON.parse(new TextDecoder().decode(jwtBase64UrlBytes(value)));
+}
+
+async function verifyJwtHmac(algorithm, signingInput, signature, secret) {
+  const hash = { HS256: "SHA-256", HS384: "SHA-384", HS512: "SHA-512" }[algorithm];
+  if (!hash) throw new Error(`暂不支持 ${algorithm || "未知"}，仅支持 HS256、HS384、HS512`);
+  if (!window.crypto?.subtle) throw new Error("当前页面环境不支持 Web Crypto，无法验签");
+  const key = await window.crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: { name: hash } },
+    false,
+    ["verify"],
+  );
+  return window.crypto.subtle.verify(
+    { name: "HMAC" },
+    key,
+    jwtBase64UrlBytes(signature),
+    new TextEncoder().encode(signingInput),
+  );
+}
+
+function bindJwtTool() {
+  const input = $("#jwt-input");
+  const secret = $("#jwt-secret");
+  const headerOutput = $("#jwt-header-output");
+  const payloadOutput = $("#jwt-payload-output");
+  const signatureOutput = $("#jwt-signature-output");
+  const status = $("#jwt-status");
+  $("#jwt-run").onclick = async () => {
+    status.textContent = "";
+    status.dataset.state = "";
+    try {
+      const parts = input.value.trim().split(".");
+      if (parts.length < 2) throw new Error("JWT 至少包含 Header 和 Payload 两段");
+      const header = decodeJwtPart(parts[0]);
+      const payload = decodeJwtPart(parts[1]);
+      if (!header || typeof header !== "object" || !payload || typeof payload !== "object") throw new Error("Header 或 Payload 必须是 JSON 对象");
+      headerOutput.textContent = JSON.stringify(header, null, 2);
+      payloadOutput.textContent = JSON.stringify(payload, null, 2);
+      signatureOutput.textContent = parts[2] || "无签名段";
+
+      const providedSecret = secret.value;
+      if (parts.length !== 3 || !providedSecret) {
+        status.textContent = parts.length === 3 ? "已解析，未提供密钥，未校验签名" : "已解析结构；该 Token 不包含签名段";
+        status.dataset.state = "neutral";
+        return;
+      }
+      const valid = await verifyJwtHmac(header.alg, `${parts[0]}.${parts[1]}`, parts[2], providedSecret);
+      status.textContent = valid ? `签名有效 · ${header.alg}` : `签名无效 · ${header.alg}`;
+      status.dataset.state = valid ? "valid" : "invalid";
+    } catch (error) {
+      headerOutput.textContent = "解析失败";
+      payloadOutput.textContent = error.message;
+      signatureOutput.textContent = "无法读取";
+      status.textContent = "解析失败";
+      status.dataset.state = "invalid";
+    }
+  };
+  $("#jwt-clear").onclick = () => {
+    input.value = "";
+    secret.value = "";
+    headerOutput.textContent = "等待解析";
+    payloadOutput.textContent = "等待解析";
+    signatureOutput.textContent = "等待解析";
+    status.textContent = "";
+    status.dataset.state = "";
+  };
+}
 
 function bindJsonTool() {
   const input = $("#json-input");
@@ -1344,22 +1438,6 @@ async function boot() {
   startRealtime();
   loadGithubProfile();
   await navigate("dashboard");
-  initScratchpad();
-}
-
-function initScratchpad() {
-  const panel = $("#scratchpad"), input = $("#scratch-content"); if (!panel || !input) return;
-  input.value = localStorage.getItem("scratchpad_content") ?? localStorage.getItem("scratchpad-content") ?? "";
-  $("#scratch-toggle").onclick = () => panel.classList.toggle("collapsed");
-  input.oninput = () => {
-    localStorage.setItem("scratchpad_content", input.value);
-    localStorage.setItem("scratchpad-content", input.value);
-  };
-  $("#scratch-copy").onclick = async () => { await navigator.clipboard.writeText(input.value); toast("便签已复制"); };
-  $("#scratch-time").onclick = () => { const stamp = new Date().toLocaleString("zh-CN"); const start=input.selectionStart; input.value=input.value.slice(0,start)+stamp+input.value.slice(input.selectionEnd); input.selectionStart=input.selectionEnd=start+stamp.length; input.dispatchEvent(new Event("input")); };
-  $("#scratch-clear").onclick = async () => { if (await confirmAction("清空便签内容？", "清空快捷便签")) { input.value=""; input.dispatchEvent(new Event("input")); } };
-  $("#scratch-note").onclick = async () => { if (!input.value.trim()) return; await api("/api/notes", { method:"POST", body: JSON.stringify({ title:`便签 ${new Date().toLocaleDateString("zh-CN")}`, content:input.value, tags:["便签"] }) }); input.value=""; input.dispatchEvent(new Event("input")); toast("已转为笔记"); };
-  document.addEventListener("keydown", (event) => { if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "p") { event.preventDefault(); panel.classList.toggle("collapsed"); } });
 }
 
 boot();

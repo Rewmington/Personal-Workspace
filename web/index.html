@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>个人工作台</title>
-  <link rel="stylesheet" href="styles.css?v=md1">
+  <link rel="stylesheet" href="styles.css?v=jwt2">
   <!-- Markdown 渲染依赖固定在本地，离线启动时也可用。 -->
   <link rel="stylesheet" href="vendor/github-dark-11.9.0.min.css">
   <script src="vendor/highlight-11.9.0.min.js"></script>
   <script src="vendor/marked-4.3.0.min.js"></script>
   <script src="vendor/dompurify-3.2.6.min.js"></script>
-  <script defer src="app.js?v=md1"></script>
+  <script defer src="app.js?v=jwt2"></script>
 </head>
 <body>
   <div id="title-bar" class="title-bar">
@@ -57,7 +57,6 @@
   <dialog id="column-dialog" class="modal"><form method="dialog" id="column-form"><div class="modal-head"><div><span class="eyebrow">NEW COLUMN</span><h2>新建任务列</h2></div><button type="button" class="icon-button dialog-close" data-dialog-close="column-dialog" title="关闭">×</button></div><label>列名称<input name="name" required maxlength="100" placeholder="例如：待审核、阻塞"></label><div class="modal-actions"><button type="button" class="secondary-button dialog-close" data-dialog-close="column-dialog">取消</button><button value="default" class="primary-button">创建任务列</button></div></form></dialog>
   <dialog id="confirm-dialog" class="modal confirm-modal"><form method="dialog" id="confirm-form"><div class="confirm-mark">!</div><div><h2 id="confirm-title">确认操作</h2><p id="confirm-message"></p></div><div class="modal-actions"><button type="button" class="secondary-button" id="confirm-cancel">取消</button><button value="default" class="primary-button danger-button" id="confirm-submit">确认</button></div></form></dialog>
   <div id="toast" class="toast" role="status"></div>
-  <section id="scratchpad" class="scratchpad collapsed"><header><strong>快捷便签</strong><button id="scratch-toggle" class="icon-button" title="展开或折叠">⌃</button></header><div class="scratch-body"><textarea id="scratch-content" placeholder="随手记录，自动保存…"></textarea><div class="scratch-actions"><button id="scratch-copy" class="secondary-button">复制</button><button id="scratch-time" class="secondary-button">插入时间</button><button id="scratch-note" class="secondary-button">转为笔记</button><button id="scratch-clear" class="icon-button" title="清空">×</button></div></div></section>
 </body>
 </html>
 

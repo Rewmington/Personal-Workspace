@@ -5,12 +5,14 @@ Web UI 自动化测试（Playwright）
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 from playwright.sync_api import Page, expect
 
 
 # 测试 URL：指向已启动的开发服务器
-BASE_URL = "http://127.0.0.1:8080/app"
+BASE_URL = os.getenv("WORKSTATION_TEST_URL", "http://127.0.0.1:8080/app")
 
 
 # ── 首页 & 导航 ──────────────────────────────────────────────
@@ -56,6 +58,21 @@ def test_switch_to_settings(page: Page):
     expect(page.locator("#settings-form")).to_be_visible()
 
 
+def test_jwt_secret_verification(page: Page):
+    """JWT 工具可用共享密钥在浏览器本地校验 HMAC 签名。"""
+    page.goto(BASE_URL)
+    page.click("button[data-view='tools']")
+    page.wait_for_timeout(300)
+    page.click("button[data-tool-tab='jwt']")
+    page.fill(
+        "#jwt-input",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiZGV2ZWxvcGVyIn0.JUJhfW0vTLKB6hj-OpZ_Tk5bgKP3RvZO9A48-rYBeFI",
+    )
+    page.fill("#jwt-secret", "dev-secret")
+    page.click("#jwt-run")
+    expect(page.locator("#jwt-status")).to_contain_text("签名有效")
+
+
 # ── 连接设置页 ────────────────────────────────────────────────
 
 def test_connect_form_fields(page: Page):
@@ -96,26 +113,6 @@ def test_settings_has_backup_panel(page: Page):
     page.click("button[data-view='settings']")
     page.wait_for_timeout(500)
     expect(page.locator(".backup-panel")).to_be_visible()
-
-
-# ── 快捷便签 ──────────────────────────────────────────────────
-
-def test_scratchpad_visible(page: Page):
-    """快捷便签区域可见。"""
-    page.goto(BASE_URL)
-    expect(page.locator("#scratchpad")).to_be_visible()
-
-
-def test_scratchpad_can_type(page: Page):
-    """快捷便签可以输入文字并自动保存到 localStorage。"""
-    page.goto(BASE_URL)
-    page.click("#scratch-toggle")
-    textarea = page.locator("#scratch-content")
-    textarea.fill("Playwright 测试便签")
-    page.wait_for_timeout(300)
-    saved = page.evaluate("() => localStorage.getItem('scratchpad-content')")
-    assert saved is not None
-    assert "Playwright 测试便签" in saved
 
 
 # ── 弹窗 ──────────────────────────────────────────────────────
