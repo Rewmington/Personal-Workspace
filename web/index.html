@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>个人工作台</title>
   <link rel="stylesheet" href="styles.css?v=md1">
-  <!-- Markdown 渲染：highlight.js 样式、marked v4（保留 setOptions highlight 回调）、DOMPurify 做 XSS 清理 -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
+  <!-- Markdown 渲染依赖固定在本地，离线启动时也可用。 -->
+  <link rel="stylesheet" href="vendor/github-dark-11.9.0.min.css">
+  <script src="vendor/highlight-11.9.0.min.js"></script>
+  <script src="vendor/marked-4.3.0.min.js"></script>
+  <script src="vendor/dompurify-3.2.6.min.js"></script>
   <script defer src="app.js?v=md1"></script>
 </head>
 <body>

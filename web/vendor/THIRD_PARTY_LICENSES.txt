@@ -1,0 +1,13 @@
+Bundled browser dependencies
+
+marked 4.3.0
+License: MIT
+Source: https://github.com/markedjs/marked
+
+DOMPurify 3.2.6
+License: Apache-2.0
+Source: https://github.com/cure53/DOMPurify
+
+highlight.js 11.9.0
+License: BSD-3-Clause
+Source: https://github.com/highlightjs/highlight.js

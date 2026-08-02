@@ -891,6 +891,12 @@ async function renderSettings() {
   const listenerNote = desktopBridge
     ? `<div class="connection-note"><span class="connection-icon">⌁</span><div><strong>手机连接地址</strong><div class="connection-addresses">${lanUrls || '<span class="connection-empty">未检测到局域网地址</span>'}</div><small>手机和电脑连接同一 Wi-Fi 后，使用上面的地址。</small>${qrMarkup}</div></div><div class="settings-note">软件启动时会自动打开服务；保存监听设置后自动重启，关闭软件时服务也会停止。</div>`
     : `<div class="settings-note">这里用于连接已经运行的工作台服务。手机或其他电脑请填写运行服务电脑的局域网 IPv4 地址。</div>`;  content.innerHTML = `<div class="view-head"><div><div class="eyebrow">LOCAL CONNECTION</div><h2>连接设置</h2><p>服务地址和 GitHub 凭据都保存在本机配置中。</p></div></div><div class="settings-grid"><div class="panel"><div class="panel-head"><h3>${desktopBridge ? "服务器监听" : "服务端地址"}</h3><span id="settings-status">${desktopBridge ? "运行中" : "未测试"}</span></div><form id="settings-form" class="settings-form"><label>${desktopBridge ? "监听 HOST" : "HOST"}<input name="host" value="${escapeHtml(configuredHost)}" placeholder="0.0.0.0"></label><label>PORT<input name="port" value="${escapeHtml(configuredPort)}" inputmode="numeric"></label>${listenerNote}<button class="primary-button">${desktopBridge ? "保存并重启服务" : "测试并保存"}</button></form></div><div class="panel"><div class="panel-head"><h3>GitHub 数据</h3><span id="github-settings-status">${github.token_configured ? "Token 已保存" : "未配置 Token"}</span></div><form id="github-settings-form" class="settings-form"><label>用户名<input name="username" value="${escapeHtml(github.username)}" placeholder="例如 octocat" required></label><label>Token<input name="token" type="password" autocomplete="off" placeholder="${github.token_configured ? "留空保留当前 Token" : "可选，公开数据可不填"}"></label><div class="settings-note">只允许在运行服务的电脑上保存。配置文件不会放进 Web 目录，也不会上传。</div><button class="primary-button" ${localHost ? "" : "disabled"}>保存 GitHub 设置</button></form></div></div><div class="panel"><div class="panel-head"><h3>当前能力</h3><span>v0.1.0</span></div><div class="progress-row"><span>REST API</span><strong class="delta">已连接</strong></div><div class="progress-row"><span>SQLite 数据</span><strong class="delta">本地</strong></div><div class="progress-row"><span>WebSocket</span><strong class="delta">已就绪</strong></div><div class="progress-row"><span>GitHub 缓存</span><strong class="delta">按需刷新</strong></div></div>`;
+  const settingsHost = content.querySelector('input[name="host"]');
+  const settingsPort = content.querySelector('input[name="port"]');
+  const settingsSubmit = content.querySelector('#settings-form button[type="submit"], #settings-form button');
+  if (settingsHost) settingsHost.id = "settings-host";
+  if (settingsPort) settingsPort.id = "settings-port";
+  if (settingsSubmit) settingsSubmit.id = "settings-test";
   const settingsGrid = content.querySelector(".settings-grid");
   // 桌面端托盘设置（仅在 Electron 环境显示）
   if (desktopBridge) {
@@ -1343,9 +1349,12 @@ async function boot() {
 
 function initScratchpad() {
   const panel = $("#scratchpad"), input = $("#scratch-content"); if (!panel || !input) return;
-  input.value = localStorage.getItem("scratchpad_content") || "";
+  input.value = localStorage.getItem("scratchpad_content") ?? localStorage.getItem("scratchpad-content") ?? "";
   $("#scratch-toggle").onclick = () => panel.classList.toggle("collapsed");
-  input.oninput = () => localStorage.setItem("scratchpad_content", input.value);
+  input.oninput = () => {
+    localStorage.setItem("scratchpad_content", input.value);
+    localStorage.setItem("scratchpad-content", input.value);
+  };
   $("#scratch-copy").onclick = async () => { await navigator.clipboard.writeText(input.value); toast("便签已复制"); };
   $("#scratch-time").onclick = () => { const stamp = new Date().toLocaleString("zh-CN"); const start=input.selectionStart; input.value=input.value.slice(0,start)+stamp+input.value.slice(input.selectionEnd); input.selectionStart=input.selectionEnd=start+stamp.length; input.dispatchEvent(new Event("input")); };
   $("#scratch-clear").onclick = async () => { if (await confirmAction("清空便签内容？", "清空快捷便签")) { input.value=""; input.dispatchEvent(new Event("input")); } };

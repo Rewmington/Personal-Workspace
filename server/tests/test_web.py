@@ -109,6 +109,7 @@ def test_scratchpad_visible(page: Page):
 def test_scratchpad_can_type(page: Page):
     """快捷便签可以输入文字并自动保存到 localStorage。"""
     page.goto(BASE_URL)
+    page.click("#scratch-toggle")
     textarea = page.locator("#scratch-content")
     textarea.fill("Playwright 测试便签")
     page.wait_for_timeout(300)
