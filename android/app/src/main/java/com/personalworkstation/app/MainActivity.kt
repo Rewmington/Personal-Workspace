@@ -242,11 +242,14 @@ private fun WorkstationApp() {
                 onStatus = { realtimeStatus = it },
                 onNotify = { title, message, _ ->
                     if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                        val pi = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-                        val notif = Notification.Builder(context, channelId)
+                        val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                        val notifBuilder = Notification.Builder(context, channelId)
                             .setContentTitle(title).setContentText(message).setSmallIcon(android.R.drawable.ic_dialog_info)
-                            .setContentIntent(pi).setAutoCancel(true).build()
+                            .setAutoCancel(true)
+                        if (launchIntent != null) {
+                            notifBuilder.setContentIntent(PendingIntent.getActivity(context, 0, launchIntent, PendingIntent.FLAG_IMMUTABLE))
+                        }
+                        val notif = notifBuilder.build()
                         nm.notify(System.currentTimeMillis().toInt(), notif)
                     }
                 },
