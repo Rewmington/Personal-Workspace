@@ -140,14 +140,14 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private val bg = Color(0xFF181818)
-private val panel = Color(0xFF252525)
-private val softPanel = Color(0xFF202020)
-private val green = Color(0xFF22C55E)
-private val greenLight = Color(0xFF4ADE80)
-private val muted = Color(0xFF888888)
-private val dim = Color(0xFF555555)
-private val errorColor = Color(0xFFFF786D)
+private val bg = Color(0xFF0B0D11)
+private val panel = Color(0xFF14161C)
+private val softPanel = Color(0xFF191C24)
+private val green = Color(0xFF6E7BF2)        // indigo accent（做 primary）
+private val greenLight = Color(0xFF98A5F8)   // indigo light
+private val muted = Color(0xFF9AA3B0)        // text-2
+private val dim = Color(0xFF626A76)          // text-3
+private val errorColor = Color(0xFFEF6B6B)   // danger
 private val cardShape = RoundedCornerShape(16.dp)
 private val tabs = listOf("看板", "笔记", "片段", "GitHub", "仪表盘", "工具", "日志", "设置")
 private val mobileTabs = listOf("看板", "笔记", "GitHub", "仪表盘", "更多")
@@ -160,10 +160,10 @@ private val colors = darkColorScheme(
     secondary = greenLight,
     background = bg,
     surface = panel,
-    surfaceVariant = Color(0xFF303030),
+    surfaceVariant = Color(0xFF24262E),
     onBackground = Color.White,
     onSurface = Color.White,
-    onSurfaceVariant = Color(0xFFB8B8B8),
+    onSurfaceVariant = Color(0xFFECEEF2),
     error = errorColor,
 )
 
