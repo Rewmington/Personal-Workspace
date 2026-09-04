@@ -252,7 +252,7 @@ private fun WorkstationApp() {
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = greenLight,
                                 selectedTextColor = greenLight,
-                                indicatorColor = Color(0x3322C55E),
+                                indicatorColor = Color(0x336E7BF2),
                                 unselectedIconColor = dim,
                                 unselectedTextColor = dim,
                             ),
@@ -402,7 +402,7 @@ private fun DashboardScreen(
                     Text(dateLabel(), fontSize = 13.sp, color = muted)
                 }
                 Row(
-                    Modifier.clip(RoundedCornerShape(20.dp)).background(Color(0x3322C55E))
+                    Modifier.clip(RoundedCornerShape(20.dp)).background(Color(0x336E7BF2))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -710,7 +710,7 @@ private fun FocusDialog(
                             selected = selectedPreset == preset,
                             onClick = { if (!running) { selectedPreset = preset; seconds = preset * 60 } },
                             label = { Text("${preset}min", fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0x3322C55E), selectedLabelColor = greenLight),
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0x336E7BF2), selectedLabelColor = greenLight),
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -1079,7 +1079,7 @@ private fun MoreScreen(onNavigate: (Int) -> Unit) {
 @Composable
 private fun MoreEntry(title: String, subtitle: String, icon: String, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)).background(Color(0x3322C55E)), contentAlignment = Alignment.Center) { Text(icon, color = greenLight, fontSize = 18.sp) }
+        Box(Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)).background(Color(0x336E7BF2)), contentAlignment = Alignment.Center) { Text(icon, color = greenLight, fontSize = 18.sp) }
         Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.SemiBold); Text(subtitle, color = muted, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp)) }
         Text("›", color = muted, fontSize = 22.sp)
     }
@@ -1342,7 +1342,7 @@ private fun DevLogScreen(client: ApiClient, realtimeRevision: Int = 0) {
                                     Modifier
                                         .size(40.dp)
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(if (mood == emoji) Color(0x3322C55E) else Color(0x0AFFFFFF))
+                                        .background(if (mood == emoji) Color(0x336E7BF2) else Color(0x0AFFFFFF))
                                         .clickable { mood = emoji },
                                     contentAlignment = Alignment.Center,
                                 ) { Text(emoji, fontSize = 20.sp) }
@@ -2437,17 +2437,17 @@ private fun activityLabel(type: String): String = when {
 }
 
 private fun heatColor(count: Int): Color = when {
-    count >= 4 -> Color(0xDD22C55E)
-    count == 3 -> Color(0x9922C55E)
-    count == 2 -> Color(0x6622C55E)
-    count == 1 -> Color(0x3322C55E)
+    count >= 4 -> Color(0xDD6E7BF2)
+    count == 3 -> Color(0x996E7BF2)
+    count == 2 -> Color(0x666E7BF2)
+    count == 1 -> Color(0x336E7BF2)
     else -> Color(0x0AFFFFFF)
 }
 
 private fun priorityColor(priority: String): Color = when (priority) {
     "high" -> errorColor
     "low" -> green
-    else -> Color(0xFFF0BF63)
+    else -> Color(0xFFE8A93D)
 }
 
 private fun priorityLabel(priority: String): String = when (priority) {
