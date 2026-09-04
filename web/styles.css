@@ -200,3 +200,15 @@ body.is-desktop .app-shell .workspace{min-height:calc(100vh - 38px)}
 .modal{background:rgba(20,22,28,.92);border:1px solid rgba(110,123,242,.16);border-radius:var(--r-xl);box-shadow:var(--sh-3)}
 .modal::backdrop{background:rgba(0,0,0,.72)}
 .note-editor textarea,.log-edit-body textarea{background:#11141a}
+
+/* 驾驶舱氛围背景（环境光 + 点阵 + 玻璃侧栏）（Task 3） */
+body{background:
+  radial-gradient(1100px 620px at 80% -10%, rgba(110,123,242,.12), transparent 60%),
+  radial-gradient(800px 500px at 8% 112%, rgba(98,165,242,.07), transparent 55%),
+  var(--bg);}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px);
+  background-size:24px 24px;opacity:.32}
+.workspace{position:relative}
+.main-content,.sidebar{position:relative;z-index:1}
+.sidebar{background:rgba(18,20,26,.72);backdrop-filter:blur(18px)}
