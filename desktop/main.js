@@ -199,7 +199,7 @@ function createTray() {
       }
     },
     { type: "separator" },
-    { label: "退出", click: () => { shutdownStarted = true; app.quit(); } }
+    { label: "退出", click: () => { app.quit(); } }
   ]);
   tray.setToolTip("个人工作台");
   tray.setContextMenu(contextMenu);
