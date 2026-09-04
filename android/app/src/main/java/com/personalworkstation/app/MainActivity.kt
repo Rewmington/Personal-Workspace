@@ -1,14 +1,21 @@
 package com.personalworkstation.app
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.Uri
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -71,6 +78,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -179,6 +187,18 @@ class MainActivity : ComponentActivity() {
 private fun WorkstationApp() {
     MaterialTheme(colorScheme = colors) {
         val context = LocalContext.current
+        val channelId = "workstation_notify"
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(NotificationChannel(channelId, "工作台提醒", NotificationManager.IMPORTANCE_HIGH))
+        }
+        val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+        LaunchedEffect(Unit) {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         val prefs = remember { context.getSharedPreferences("workstation_preferences", Context.MODE_PRIVATE) }
         var tab by remember { mutableIntStateOf(4) }
         var host by remember { mutableStateOf(prefs.getString("host", "192.168.1.100") ?: "192.168.1.100") }
@@ -220,6 +240,16 @@ private fun WorkstationApp() {
             client.listenRealtime(
                 onEvent = { realtimeRevision += 1 },
                 onStatus = { realtimeStatus = it },
+                onNotify = { title, message, _ ->
+                    if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                        val pi = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+                        val notif = Notification.Builder(context, channelId)
+                            .setContentTitle(title).setContentText(message).setSmallIcon(android.R.drawable.ic_dialog_info)
+                            .setContentIntent(pi).setAutoCancel(true).build()
+                        nm.notify(System.currentTimeMillis().toInt(), notif)
+                    }
+                },
             )
         }
         Scaffold(

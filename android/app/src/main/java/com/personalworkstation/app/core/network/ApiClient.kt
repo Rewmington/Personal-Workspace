@@ -189,7 +189,11 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
 
     fun close() = client.close()
 
-    suspend fun listenRealtime(onEvent: suspend () -> Unit, onStatus: (String) -> Unit) {
+    suspend fun listenRealtime(
+        onEvent: suspend () -> Unit,
+        onStatus: (String) -> Unit,
+        onNotify: suspend (title: String, message: String, type: String) -> Unit = { _, _, _ -> },
+    ) {
         val websocketUrl = baseUrl.replaceFirst("http://", "ws://").replaceFirst("https://", "wss://") + "/ws"
         var retryCount = 0
         var lastSeq = 0L
@@ -206,6 +210,14 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
                             json["seq"]?.toString()?.toLongOrNull()?.let { lastSeq = maxOf(lastSeq, it) }
                             when (json["type"]?.toString()?.trim('"')) {
                                 "ping" -> send(Frame.Text("{\"type\":\"pong\"}"))
+                                "notify" -> {
+                                    val data = json["data"]?.jsonObject
+                                    onNotify(
+                                        data?.get("title")?.toString()?.trim('"') ?: "通知",
+                                        data?.get("message")?.toString()?.trim('"') ?: "",
+                                        data?.get("type")?.toString()?.trim('"') ?: "info",
+                                    )
+                                }
                                 "sync_state", "task_created", "task_updated", "task_deleted", "note_created", "note_updated", "note_deleted", "snippet_created", "snippet_updated", "snippet_deleted", "board_created", "column_created" -> onEvent()
                             }
                         }
