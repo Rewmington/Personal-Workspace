@@ -1,0 +1,11 @@
+# 标记 .claude 目录为文档，不计入语言统计
+.claude/* linguist-documentation
+.claude/**/* linguist-documentation
+
+# Android 为移动端伴侣，不参与主语言统计
+android/**/*.kt  linguist-vendored
+android/**/*.kts linguist-vendored
+android/**/*.xml linguist-vendored
+
+# Electron 桌面壳，不参与主语言统计
+desktop/*.js linguist-vendored
