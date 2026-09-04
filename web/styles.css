@@ -174,3 +174,29 @@ body.is-desktop .app-shell .workspace{min-height:calc(100vh - 38px)}
 .clipboard-item{display:flex;flex-direction:column;padding:12px;border:1px solid #333;border-radius:10px;background:#1a1a1a;transition:.15s}.clipboard-item:hover{border-color:#5a5a5a}
 .clipboard-item-content{cursor:pointer}.clipboard-item-content pre{margin:0;white-space:pre-wrap;word-break:break-all;font:12px ui-monospace,monospace;color:#ccc;line-height:1.5}
 .clipboard-item-meta{display:flex;align-items:center;justify-content:space-between;margin-top:6px;font-size:10px;color:#666}.clipboard-del{min-width:22px;height:22px;border:0;border-radius:6px;background:0;color:#666;font-size:14px;cursor:pointer}.clipboard-del:hover{background:#333;color:#f77}
+
+/* 基础组件应用 indigo 分层 / 大圆角 / 柔影 / 渐变（Task 2） */
+.panel,.stat-card,.task-card,.note-card,.repo-card,.backup-panel{
+  background:rgba(20,22,28,.62);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-1)}
+.stat-card{background:rgba(20,22,28,.62);padding:16px 18px}
+.stat-card .label{color:var(--text-2)}
+.stat-card .value{margin-top:8px;color:#fff;font-size:30px;font-weight:800;letter-spacing:-1px;text-shadow:0 0 24px rgba(152,165,248,.3)}
+.primary-button{border:0;border-radius:var(--r);padding:9px 16px;color:#fff;font-weight:600;
+  background:linear-gradient(135deg,var(--accent),var(--accent-lt));box-shadow:0 6px 18px rgba(110,123,242,.3)}
+.primary-button:hover{filter:brightness(1.08)}
+.secondary-button{background:var(--elevated);border:1px solid var(--line);color:var(--text-2);border-radius:var(--r)}
+.secondary-button:hover{background:#22262f;color:#fff}
+.nav-item{border-radius:var(--r-sm);border:1px solid transparent}
+.nav-item:hover{background:rgba(255,255,255,.03);color:#dde1e8}
+.nav-item.active{background:var(--accent-soft);color:#fff;border-color:rgba(110,123,242,.22)}
+.nav-item.active:before{background:var(--accent);box-shadow:0 0 8px var(--glow-lt)}
+.nav-item.active .nav-icon{color:var(--accent-lt)}
+.nav-badge{background:var(--accent)}
+.search,.settings-form input,.modal input,.modal textarea,.modal select,.filter-select,.tool-field input,.tool-field textarea,.http-kv-key,.http-kv-value,#http-body,#http-url,#clipboard-input,.jwt-* textarea{
+  background:#11141a;border:1px solid #2a303a;border-radius:var(--r)}
+.search:focus,.settings-form input:focus,.modal input:focus,.modal textarea:focus,.modal select:focus,.filter-select:focus,#http-url:focus,#http-body:focus,#clipboard-input:focus{
+  border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,123,242,.16);outline:none}
+.tag{background:var(--accent-soft);color:var(--accent-lt);border-radius:999px}
+.modal{background:rgba(20,22,28,.92);border:1px solid rgba(110,123,242,.16);border-radius:var(--r-xl);box-shadow:var(--sh-3)}
+.modal::backdrop{background:rgba(0,0,0,.72)}
+.note-editor textarea,.log-edit-body textarea{background:#11141a}
