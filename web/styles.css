@@ -212,3 +212,16 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 .workspace{position:relative}
 .main-content,.sidebar{position:relative;z-index:1}
 .sidebar{background:rgba(18,20,26,.72);backdrop-filter:blur(18px)}
+
+/* 招牌可视化（星野 / 轨道环 / 发光时间线）（Task 4） */
+.heat-cell{border-radius:3px;transition:.12s}
+.heat-cell:hover{transform:scale(1.28);box-shadow:0 0 14px var(--glow-lt);z-index:1}
+.heat-cell.l1{background:rgba(110,123,242,.18)}
+.heat-cell.l2{background:rgba(110,123,242,.38)}
+.heat-cell.l3{background:rgba(110,123,242,.62)}
+.heat-cell.l4{background:#A9B4FF;box-shadow:0 0 8px rgba(152,165,248,.5)}
+@keyframes breathe{0%,100%{filter:drop-shadow(0 0 8px rgba(110,123,242,.35))}50%{filter:drop-shadow(0 0 18px rgba(110,123,242,.6))}}
+.progress i{background:linear-gradient(90deg,var(--accent),var(--accent-lt));box-shadow:0 0 8px rgba(152,165,248,.4)}
+.activity{position:relative;padding-left:16px;border-left:1px solid rgba(110,123,242,.18)}
+.activity:before{content:"";position:absolute;left:-4px;top:12px;width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--glow-lt)}
+.mini-avatar{border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-lt))}
