@@ -28,8 +28,8 @@
         "to": "web"
       },
       {
-        "from": "../dist/personal-workstation-server.exe",
-        "to": "server/personal-workstation-server.exe"
+        "from": "../dist/personal-workstation-server",
+        "to": "server"
       }
     ],
     "nsis": {
@@ -44,9 +44,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     }
+  },
+  "allowScripts": {
+    "electron@37.10.3": true,
+    "electron-winstaller@5.4.0": true
   }
 }
