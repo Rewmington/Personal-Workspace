@@ -92,3 +92,15 @@ def test_productivity_endpoints():
         log = client.get("/api/logs/today")
         assert log.status_code == 200
         assert client.put(f"/api/logs/{log.json()['id']}", json={"content": "test"}).status_code == 200
+
+
+def test_notify_broadcast():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            assert websocket.receive_json()["type"] == "connected"
+            resp = client.post("/api/notify", json={"title": "测试", "message": "hi", "type": "success"})
+            assert resp.status_code == 200 and resp.json()["ok"] is True
+            event = websocket.receive_json()
+            assert event["type"] == "notify"
+            assert event["data"]["title"] == "测试"
+            assert event["data"]["type"] == "success"
