@@ -62,6 +62,12 @@ class ReconnectingWebSocket {
       try { message = JSON.parse(event.data); } catch (_) { return; }
       if (message.seq) this.lastSeq = Math.max(this.lastSeq, message.seq);
       if (message.type === "ping") { this.ws.send(JSON.stringify({ type: "pong" })); return; }
+      if (message.type === "clipboard") {
+        if (state.view === "tools" && state.tool === "clipboard" && typeof window.__refreshClipboard === "function") {
+          window.__refreshClipboard();
+        }
+        return;
+      }
       if (["sync_state", "task_created", "task_updated", "task_deleted", "note_created", "note_updated", "note_deleted", "snippet_created", "snippet_updated", "snippet_deleted", "board_created", "column_created"].includes(message.type)) {
         window.clearTimeout(realtimeRefreshTimer);
         realtimeRefreshTimer = window.setTimeout(() => navigate(state.view), 180);
@@ -893,6 +899,7 @@ function clipboardMarkup() {
 
 function bindClipboardTool() {
   async function refresh() {
+    window.__refreshClipboard = refresh;  // WS 收到 clipboard 事件时被动刷新列表
     const list = $("#clipboard-list");
     if (!list) return;
     try {
@@ -1003,6 +1010,22 @@ async function renderSettings() {
   }
   settingsGrid?.insertAdjacentHTML("beforeend", `<div class="panel"><div class="panel-head"><h3>个人资料</h3><span id="profile-status">已同步</span></div><form id="profile-form" class="settings-form"><label>显示名称<input name="display_name" value="${escapeHtml(profile.display_name)}" maxlength="100" required></label><label>GitHub 用户名<input name="github_username" value="${escapeHtml(profile.github_username || github.username)}" maxlength="100" placeholder="可选"></label><div class="settings-note">保存后手机端连接此电脑时会自动同步。</div><button class="primary-button">保存个人资料</button></form></div>`);
   settingsGrid?.insertAdjacentHTML("beforeend", '<div class="panel backup-panel"><div class="panel-head"><div><h3>数据备份</h3><span class="backup-subtitle">保护本机工作数据</span></div><span class="backup-local-badge">本机保存</span></div><div class="settings-note backup-note">SQLite 适合完整恢复，JSON 适合查看和迁移。任何恢复操作前都会自动创建安全备份。</div><section class="backup-section"><div class="backup-section-title"><span>导出备份</span><small>选择一种格式下载当前数据</small></div><div class="backup-actions"><button id="backup-json" class="secondary-button"><span class="backup-icon">{ }</span>导出 JSON</button><button id="backup-sqlite" class="secondary-button"><span class="backup-icon">▣</span>导出 SQLite</button></div></section><section class="backup-section backup-restore-section"><div class="backup-section-title"><span>恢复备份</span><small>恢复前会自动生成安全副本</small></div><label class="backup-file-picker"><input id="backup-file" type="file" accept=".json,.db,application/json,application/x-sqlite3"><span class="backup-file-button">选择备份文件</span><span id="backup-file-name" class="backup-file-name">尚未选择文件</span></label><div class="backup-restore-row"><label class="backup-mode-field"><span>恢复方式</span><select id="backup-mode"><option value="replace">替换当前数据</option><option value="merge">合并 JSON 数据</option></select></label><button id="backup-import" class="primary-button">恢复备份</button></div></section></div>');
+  settingsGrid?.insertAdjacentHTML("beforeend", '<div class="panel"><div class="panel-head"><h3>剪贴板同步</h3><span id="clipboard-sync-status">加载中</span></div><form id="clipboard-sync-form" class="settings-form"><label class="toggle-label"><span>自动同步电脑 ↔ 手机剪贴板<div class="toggle-desc">任一端复制文本，另一端自动写入系统剪贴板（仅局域网内生效）</div></span><label class="switch"><input id="clipboard-sync-toggle" type="checkbox"><span class="slider"></span></label></label></form></div>');
+  try {
+    const sync = await api("/api/clipboard/sync");
+    const toggle = document.getElementById("clipboard-sync-toggle");
+    if (toggle) toggle.checked = Boolean(sync.enabled);
+    const st = document.getElementById("clipboard-sync-status");
+    if (st) st.textContent = sync.enabled ? "已开启" : "已关闭";
+  } catch (_) { const st = document.getElementById("clipboard-sync-status"); if (st) st.textContent = "不可用"; }
+  document.getElementById("clipboard-sync-toggle")?.addEventListener("change", async (e) => {
+    try {
+      await api("/api/clipboard/sync", { method: "PUT", body: JSON.stringify({ enabled: e.target.checked }) });
+      const st = document.getElementById("clipboard-sync-status");
+      if (st) st.textContent = e.target.checked ? "已开启" : "已关闭";
+      toast(e.target.checked ? "剪贴板自动同步已开启" : "剪贴板自动同步已关闭");
+    } catch (_) { toast("保存失败", true); }
+  });
   const capabilityPanel = content.querySelector(".settings-grid + .panel");
   if (capabilityPanel && !$("#export-data")) capabilityPanel.insertAdjacentHTML("beforeend", '<div class="settings-export"><span>数据备份</span><button id="export-data" class="secondary-button">导出 JSON</button></div>');
   $("#export-data")?.addEventListener("click", exportLocalData);
