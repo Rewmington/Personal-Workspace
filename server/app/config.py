@@ -66,6 +66,7 @@ class Settings:
     github_username: str | None
     github_fetch_timeout: float
     display_name: str
+    clipboard_sync_enabled: bool
 
     def save_github(self, username: str | None, token: str | None) -> None:
         self.github_username = username or None
@@ -108,6 +109,23 @@ class Settings:
             except OSError:
                 pass
 
+    def save_clipboard(self, enabled: bool) -> None:
+        self.clipboard_sync_enabled = bool(enabled)
+        values = _read_local_config()
+        values["clipboard_sync_enabled"] = self.clipboard_sync_enabled
+        LOCAL_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_name = tempfile.mkstemp(prefix="settings-", suffix=".json", dir=LOCAL_CONFIG_PATH.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(values, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+            os.replace(temp_name, LOCAL_CONFIG_PATH)
+        finally:
+            try:
+                Path(temp_name).unlink(missing_ok=True)
+            except OSError:
+                pass
+
 
 _local = _read_local_config()
 _local_token = _local.get("github_token") or None
@@ -119,5 +137,7 @@ settings = Settings(
     github_username=os.getenv("GITHUB_USERNAME") or _local.get("github_username") or None,
     github_fetch_timeout=float(os.getenv("GITHUB_FETCH_TIMEOUT", "15")),
     display_name=str(os.getenv("WORKSTATION_DISPLAY_NAME") or _local.get("display_name") or "Liu Developer"),
+    clipboard_sync_enabled=os.getenv("WORKSTATION_CLIPBOARD_SYNC", "1") != "0"
+    and bool(_local.get("clipboard_sync_enabled", True)),
 )
 

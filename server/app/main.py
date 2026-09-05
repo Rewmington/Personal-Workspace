@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import backup, clipboard, connect, dashboard, github, http_client, notes, notify, profile, tasks, snippets, git, focus, logs
+from .clipboard_sync import clipboard_monitor_loop
 from .config import settings
 from .database import init_db
 from .mdns_broadcaster import get_mdns_broadcaster
@@ -21,6 +22,7 @@ from .websocket.handler import websocket_endpoint
 
 _logger = logging.getLogger("lifespan")
 _github_refresh_task: asyncio.Task[None] | None = None
+_clipboard_task: asyncio.Task[None] | None = None
 
 # ── GitHub 后台定时刷新 ──
 
@@ -65,18 +67,27 @@ async def _start_discovery_services() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global _github_refresh_task
+    global _github_refresh_task, _clipboard_task
     init_db()
     # 网络发现服务延后后台启动，不阻塞 /api/health 就绪
     asyncio.create_task(_start_discovery_services())
     # 启动 GitHub 后台定时刷新
     _github_refresh_task = asyncio.create_task(_github_refresh_loop())
+    # 启动剪贴板自动同步轮询（异常内部消化，永不退出）
+    _clipboard_task = asyncio.create_task(clipboard_monitor_loop())
     yield
     # 停止 GitHub 后台刷新
     if _github_refresh_task:
         _github_refresh_task.cancel()
         try:
             await _github_refresh_task
+        except asyncio.CancelledError:
+            pass
+    # 停止剪贴板同步轮询
+    if _clipboard_task:
+        _clipboard_task.cancel()
+        try:
+            await _clipboard_task
         except asyncio.CancelledError:
             pass
     # 停止 mDNS 广播
