@@ -216,6 +216,25 @@ private fun WorkstationApp() {
         val client = remember(host, port) {
             ApiClient(normalizeHost(host), port.toIntOrNull()?.coerceIn(1, 65535) ?: 8080)
         }
+        // ── 剪贴板自动同步：本机变化上报 + 接收广播写入 ──
+        var clipboardLastText by remember { mutableStateOf("") }
+        val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clipListener = remember(client) {
+            ClipboardManager.OnPrimaryClipChangedListener {
+                appScope.launch {
+                    val clip = clipboardManager.primaryClip
+                    val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString().orEmpty()
+                    if (text.isNotBlank() && text != clipboardLastText) {
+                        clipboardLastText = text
+                        try { client.clipboardAdd(ClipboardCreateRequest(text, "android")) } catch (_: Exception) { /* 静默：连接断开时跳过 */ }
+                    }
+                }
+            }
+        }
+        DisposableEffect(client) {
+            clipboardManager.addPrimaryClipChangedListener(clipListener)
+            onDispose { clipboardManager.removePrimaryClipChangedListener(clipListener) }
+        }
         fun saveBoolean(key: String, value: Boolean) {
             prefs.edit().putBoolean(key, value).apply()
         }
@@ -251,6 +270,12 @@ private fun WorkstationApp() {
                         }
                         val notif = notifBuilder.build()
                         nm.notify(System.currentTimeMillis().toInt(), notif)
+                    }
+                },
+                onClipboard = { content, _ ->
+                    if (content.isNotBlank() && content != clipboardLastText) {
+                        clipboardLastText = content
+                        clipboardManager.setPrimaryClip(ClipData.newPlainText("workstation_sync", content))
                     }
                 },
             )

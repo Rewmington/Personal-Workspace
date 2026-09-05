@@ -193,6 +193,7 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
         onEvent: suspend () -> Unit,
         onStatus: (String) -> Unit,
         onNotify: suspend (title: String, message: String, type: String) -> Unit = { _, _, _ -> },
+        onClipboard: suspend (content: String, source: String) -> Unit = { _, _ -> },
     ) {
         val websocketUrl = baseUrl.replaceFirst("http://", "ws://").replaceFirst("https://", "wss://") + "/ws"
         var retryCount = 0
@@ -216,6 +217,13 @@ class ApiClient(host: String = "192.168.1.100", port: Int = 8080) {
                                         data?.get("title")?.toString()?.trim('"') ?: "通知",
                                         data?.get("message")?.toString()?.trim('"') ?: "",
                                         data?.get("type")?.toString()?.trim('"') ?: "info",
+                                    )
+                                }
+                                "clipboard" -> {
+                                    val data = json["data"]?.jsonObject
+                                    onClipboard(
+                                        data?.get("content")?.toString()?.trim('"') ?: "",
+                                        data?.get("source")?.toString()?.trim('"') ?: "",
                                     )
                                 }
                                 "sync_state", "task_created", "task_updated", "task_deleted", "note_created", "note_updated", "note_deleted", "snippet_created", "snippet_updated", "snippet_deleted", "board_created", "column_created" -> onEvent()
